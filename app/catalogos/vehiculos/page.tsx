@@ -1,0 +1,23 @@
+import CatalogoSimple from "@/components/CatalogoSimple";
+
+export default function VehiculosPage() {
+  return (
+    <CatalogoSimple
+      tabla="vehiculos"
+      titulo="Maquinaria / Vehículos"
+      subtitulo="Tractores, pipas, camionetas, dron..."
+      ordenPor="nombre"
+      campos={[
+        { name: "nombre", label: "Nombre", type: "text", requerido: true },
+        { name: "tipo", label: "Tipo", type: "text" },
+        {
+          name: "campo_base_id",
+          label: "Campo",
+          type: "select",
+          relacion: { tabla: "campos", valueCol: "id", labelCol: "nombre" },
+        },
+        { name: "tarifa_interna_por_turno", label: "Tarifa/turno", type: "number" },
+      ]}
+    />
+  );
+}

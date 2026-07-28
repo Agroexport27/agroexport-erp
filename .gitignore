@@ -1,0 +1,16 @@
+# dependencias
+/node_modules
+
+# Next.js
+/.next/
+/out/
+
+# variables de entorno (secretos - NUNCA subir a git)
+.env
+.env.local
+.env*.local
+
+# otros
+.DS_Store
+*.log
+.vercel
