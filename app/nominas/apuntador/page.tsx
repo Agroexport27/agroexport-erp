@@ -906,8 +906,8 @@ export default function ApuntadorPage() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2">
+              <div className="flex flex-col gap-3">
+                <div className="">
                   <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
                     Actividad
                   </label>
@@ -982,7 +982,7 @@ export default function ApuntadorPage() {
                   </select>
                 </div>
 
-                <div className="col-span-2">
+                <div className="">
                   <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
                     Trabajador
                   </label>
@@ -1041,7 +1041,6 @@ export default function ApuntadorPage() {
                     onChange={(e) => actualizarSlot(s.key, { tarifa: e.target.value })}
                   />
                 </div>
-                <div />
 
                 <div>
                   <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
