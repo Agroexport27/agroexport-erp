@@ -21,7 +21,7 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (error) {
-      setError("Correo o contraseña incorrectos.");
+      setError(`Error real: ${error.message} (código: ${(error as any).status ?? "?"})`);
       return;
     }
     router.push("/");
