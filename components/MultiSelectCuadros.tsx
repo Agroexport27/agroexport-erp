@@ -84,7 +84,7 @@ export default function MultiSelectCuadros({
       </div>
 
       {abierto && (
-        <div className="absolute z-20 mt-1 w-80 rounded-md border border-campo-200 bg-white p-2 shadow-lg">
+        <div className="absolute z-20 mt-1 w-[min(20rem,90vw)] rounded-md border border-campo-200 bg-white p-2 shadow-lg">
           <input
             autoFocus
             className="input mb-2"

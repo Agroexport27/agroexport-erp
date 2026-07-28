@@ -306,7 +306,7 @@ export default function CensoPage() {
         </div>
       )}
 
-      <div className="card mb-4 grid grid-cols-3 gap-3 p-4">
+      <div className="card mb-4 grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">
             Fecha

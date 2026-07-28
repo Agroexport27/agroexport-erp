@@ -52,7 +52,7 @@ export default function BuscadorEmpleado({
         }}
       />
       {abierto && valorTexto.trim() && (
-        <div className="absolute z-20 mt-1 max-h-56 w-72 overflow-y-auto rounded-md border border-campo-200 bg-white py-1 shadow-lg">
+        <div className="absolute z-20 mt-1 max-h-56 w-[min(18rem,90vw)] overflow-y-auto rounded-md border border-campo-200 bg-white py-1 shadow-lg">
           {coincidencias.length === 0 && (
             <p className="px-3 py-2 text-xs text-campo-400">Sin coincidencias.</p>
           )}

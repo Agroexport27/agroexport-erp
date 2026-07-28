@@ -593,7 +593,7 @@ export default function ApuntadorPage() {
         </div>
       )}
 
-      <div className="card mb-4 grid grid-cols-4 items-end gap-3 p-4">
+      <div className="card mb-4 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">
             Fecha
