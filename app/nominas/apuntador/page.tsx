@@ -694,7 +694,7 @@ export default function ApuntadorPage() {
       )}
 
       {slots.length > 0 && (
-        <div className="card mb-4 overflow-visible">
+        <div className="card mb-4 hidden overflow-visible md:block">
           <table className="w-full text-sm">
             <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
               <tr>
@@ -880,7 +880,198 @@ export default function ApuntadorPage() {
         </div>
       )}
 
-      <div className="mb-6 flex gap-3">
+      {/* Vista en tarjetas, solo en celular */}
+      {slots.length > 0 && (
+        <div className="mb-4 space-y-3 md:hidden">
+          {slots.map((s) => (
+            <div
+              key={s.key}
+              className={`card p-3 ${seleccionados.has(s.key) ? "border-campo-300 bg-campo-50" : ""}`}
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <label className="flex items-center gap-2 text-xs text-campo-600">
+                  <input
+                    type="checkbox"
+                    checked={seleccionados.has(s.key)}
+                    onChange={() => toggleSeleccion(s.key)}
+                  />
+                  Seleccionar
+                </label>
+                <button
+                  className="text-red-500 hover:text-red-700"
+                  onClick={() => quitarSlot(s.key)}
+                  title="Quitar espacio"
+                >
+                  × Quitar
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2">
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Actividad
+                  </label>
+                  <select
+                    className="input"
+                    value={s.actividadId}
+                    onChange={(e) => {
+                      const act = actividades.find((a) => a.id === e.target.value);
+                      actualizarSlot(s.key, {
+                        actividadId: e.target.value,
+                        actividadNombre: act?.label ?? "",
+                      });
+                    }}
+                  >
+                    <option value="">Actividad...</option>
+                    {actividades.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Cuadro
+                  </label>
+                  {s.cuadrosPermitidos.length === 1 ? (
+                    <p className="input bg-campo-50 text-campo-800">{s.cuadroNombre}</p>
+                  ) : (
+                    <select
+                      className="input"
+                      value={s.cuadroId ?? ""}
+                      onChange={(e) => {
+                        const opciones = s.cuadrosPermitidos.length > 0 ? s.cuadrosPermitidos : cuadros;
+                        const cua = opciones.find((c) => c.id === e.target.value);
+                        actualizarSlot(s.key, {
+                          cuadroId: e.target.value || null,
+                          cuadroNombre: cua?.label ?? "General",
+                          cultivoId: e.target.value
+                            ? cultivoPorCuadro[e.target.value] ?? s.cultivoId
+                            : s.cultivoId,
+                        });
+                      }}
+                    >
+                      <option value="">General</option>
+                      {(s.cuadrosPermitidos.length > 0 ? s.cuadrosPermitidos : cuadros).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Cultivo
+                  </label>
+                  <select
+                    className="input"
+                    value={s.cultivoId}
+                    onChange={(e) => actualizarSlot(s.key, { cultivoId: e.target.value })}
+                  >
+                    <option value="">Selecciona...</option>
+                    <option value="GENERAL">General (prorratear)</option>
+                    {cultivos.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-span-2">
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Trabajador
+                  </label>
+                  <BuscadorEmpleado
+                    empleados={empleados}
+                    valorTexto={s.empleadoTexto}
+                    onSeleccionar={(empleadoId, texto) =>
+                      actualizarSlot(s.key, { empleadoTexto: texto, empleadoId })
+                    }
+                  />
+                  {s.empleadoTexto && !s.empleadoId && (
+                    <p className="text-[10px] text-red-500">Sin seleccionar de la lista</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Tipo
+                  </label>
+                  <select
+                    className="input"
+                    value={s.tipoPago}
+                    onChange={(e) =>
+                      actualizarSlot(s.key, {
+                        tipoPago: e.target.value as "jornal" | "destajo",
+                      })
+                    }
+                  >
+                    <option value="jornal">Jornal</option>
+                    <option value="destajo">Destajo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Avance
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="input disabled:opacity-30"
+                    disabled={s.tipoPago !== "destajo"}
+                    value={s.avance}
+                    onChange={(e) => actualizarSlot(s.key, { avance: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Tarifa
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="input"
+                    value={s.tarifa}
+                    onChange={(e) => actualizarSlot(s.key, { tarifa: e.target.value })}
+                  />
+                </div>
+                <div />
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    H. entrada
+                  </label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={s.horaEntrada}
+                    onChange={(e) => actualizarSlot(s.key, { horaEntrada: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    H. salida
+                  </label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={s.horaSalida}
+                    onChange={(e) => actualizarSlot(s.key, { horaSalida: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mb-6 flex flex-wrap gap-3">
         <button className="btn-secondary" onClick={agregarSlotManual}>
           + Agregar espacio manual
         </button>
@@ -929,7 +1120,8 @@ export default function ApuntadorPage() {
               </button>
             </span>
           </summary>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="text-left text-xs font-medium text-campo-600">
               <tr>
                 <th className="px-4 py-2">Periodo</th>
@@ -1054,6 +1246,7 @@ export default function ApuntadorPage() {
               )}
             </tbody>
           </table>
+          </div>
         </details>
       ))}
     </div>
