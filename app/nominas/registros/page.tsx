@@ -363,7 +363,7 @@ function VistaApuntador({
       const nombre = r.empleados?.nombre ?? "";
       const key = clave || nombre;
       const recibo =
-        porEmpleado.get(key) ?? { clave, nombre, filas: [] };
+        porEmpleado.get(key) ?? ({ clave, nombre, filas: [] } as ReciboEmpleado);
       recibo.filas.push({
         fecha: r.fecha,
         actividad: r.actividades?.nombre ?? "",
