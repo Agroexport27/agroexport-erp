@@ -883,6 +883,14 @@ export default function ApuntadorPage() {
       {/* Vista en tarjetas, solo en celular */}
       {slots.length > 0 && (
         <div className="mb-4 space-y-3 md:hidden">
+          <label className="flex items-center gap-2 rounded-md bg-campo-50 px-3 py-2 text-sm text-campo-700">
+            <input
+              type="checkbox"
+              checked={seleccionados.size === slots.length && slots.length > 0}
+              onChange={toggleSeleccionarTodos}
+            />
+            Seleccionar todos ({seleccionados.size}/{slots.length})
+          </label>
           {slots.map((s) => (
             <div
               key={s.key}

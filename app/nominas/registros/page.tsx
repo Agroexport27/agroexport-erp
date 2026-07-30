@@ -6,6 +6,7 @@ import { generarPdfCenso, FilaCensoPdf } from "@/lib/pdf/censo";
 import { generarExcelCensos, FilaCensoResumen } from "@/lib/excel/censoResumen";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
+import { generarPdfRecibosNomina, ReciboEmpleado } from "@/lib/pdf/reciboNomina";
 
 type Opcion = { id: string; label: string };
 
@@ -291,7 +292,7 @@ function VistaApuntador({
     let query = supabase
       .from("apuntador_diario")
       .select(
-        "id, fecha, periodo, periodo_anio, tipo_pago, avance, tarifa, total, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
+        "id, fecha, periodo, periodo_anio, tipo_pago, avance, tarifa, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
       )
       .order("periodo_anio", { ascending: false })
       .order("periodo", { ascending: false })
@@ -353,6 +354,34 @@ function VistaApuntador({
 
   function descargarPdfGrupo(filas: any[], nombreGrupo: string) {
     generarPdfApuntador(filasParaExport(filas), `Apuntador — ${nombreGrupo}`, `apuntador_${nombreGrupo.replace(/\s+/g, "_")}.pdf`);
+  }
+
+  function descargarRecibosGrupo(filas: any[], nombreGrupo: string) {
+    const porEmpleado = new Map<string, ReciboEmpleado>();
+    for (const r of filas) {
+      const clave = r.empleados?.clave ?? "";
+      const nombre = r.empleados?.nombre ?? "";
+      const key = clave || nombre;
+      const recibo =
+        porEmpleado.get(key) ?? { clave, nombre, filas: [] };
+      recibo.filas.push({
+        fecha: r.fecha,
+        actividad: r.actividades?.nombre ?? "",
+        cuadro: r.cuadros?.nombre ?? "General",
+        horaEntrada: r.hora_entrada,
+        horaSalida: r.hora_salida,
+        total: Number(r.total ?? 0),
+      });
+      porEmpleado.set(key, recibo);
+    }
+    const recibos = Array.from(porEmpleado.values()).map((r) => ({
+      ...r,
+      filas: r.filas.sort((a, b) => (a.fecha < b.fecha ? -1 : 1)),
+    }));
+    recibos.sort((a, b) => a.clave.localeCompare(b.clave));
+
+    const campoNombre = filas[0]?.campos?.nombre ?? "";
+    generarPdfRecibosNomina({ campoNombre, periodoLabel: nombreGrupo, recibos });
   }
 
   async function eliminarRegistro(id: string) {
@@ -423,6 +452,7 @@ function VistaApuntador({
                 {filas.length} registros · ${total.toFixed(2)}
                 <button className="btn-secondary" onClick={() => descargarExcelGrupo(filas, grupo)}>Excel</button>
                 <button className="btn-secondary" onClick={() => descargarPdfGrupo(filas, grupo)}>PDF</button>
+                <button className="btn-secondary" onClick={() => descargarRecibosGrupo(filas, grupo)}>Recibos por trabajador</button>
                 <button className="btn-danger" onClick={() => eliminarGrupo(filas)}>Eliminar grupo</button>
               </span>
             </summary>
