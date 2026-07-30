@@ -16,63 +16,76 @@ export type ReciboEmpleado = {
   filas: FilaRecibo[];
 };
 
-// Lista compacta: todos los trabajadores de un campo/periodo en la misma
-// hoja (o el minimo de hojas posible), con una columna en blanco para que
-// cada quien firme junto a su total. Al pie de cada hoja van las firmas
-// del ingeniero y la apuntadora.
+// Lista compacta: todos los trabajadores de un campo/periodo, con una
+// columna por cada dia de la semana (sabado a viernes) mostrando cuanto
+// gano ese dia, y una columna en blanco para firmar. Firmas de ingeniero
+// y apuntadora al pie de cada hoja.
 export function generarPdfRecibosNomina({
   campoNombre,
   periodoLabel,
+  dias,
   recibos,
 }: {
   campoNombre: string;
   periodoLabel: string;
+  dias: { fecha: string; etiqueta: string }[];
   recibos: ReciboEmpleado[];
 }) {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ orientation: "landscape" });
 
   const body = recibos.map((r, i) => {
+    const totalesPorDia = dias.map((d) => {
+      const suma = r.filas
+        .filter((f) => f.fecha === d.fecha)
+        .reduce((s, f) => s + f.total, 0);
+      return suma > 0 ? suma.toFixed(0) : "";
+    });
     const total = r.filas.reduce((s, f) => s + f.total, 0);
-    return [String(i + 1), r.clave, r.nombre, `$${total.toFixed(2)}`, ""];
+    return [String(i + 1), r.clave, r.nombre, ...totalesPorDia, `$${total.toFixed(2)}`, ""];
   });
 
+  const totalesColumnaPorDia = dias.map((d) =>
+    recibos
+      .reduce(
+        (s, r) =>
+          s + r.filas.filter((f) => f.fecha === d.fecha).reduce((s2, f) => s2 + f.total, 0),
+        0
+      )
+      .toFixed(0)
+  );
   const granTotal = recibos.reduce(
     (s, r) => s + r.filas.reduce((s2, f) => s2 + f.total, 0),
     0
   );
 
   autoTable(doc, {
-    startY: 30,
-    head: [["No.", "Clave", "Nombre", "Total semana", "Firma de conformidad"]],
+    startY: 26,
+    head: [["No.", "Clave", "Nombre", ...dias.map((d) => d.etiqueta), "Total", "Firma"]],
     body,
-    foot: [["", "", "TOTAL", `$${granTotal.toFixed(2)}`, ""]],
-    styles: { fontSize: 8, cellPadding: 2.5 },
-    headStyles: { fillColor: [92, 140, 58] },
+    foot: [["", "", "TOTAL", ...totalesColumnaPorDia, `$${granTotal.toFixed(2)}`, ""]],
+    styles: { fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: [92, 140, 58], fontSize: 7 },
     footStyles: { fillColor: [240, 226, 206], textColor: [61, 61, 58] },
     columnStyles: {
-      0: { cellWidth: 10 },
-      1: { cellWidth: 20 },
-      3: { cellWidth: 26 },
-      4: { cellWidth: 55, minCellHeight: 10 },
+      0: { cellWidth: 8 },
+      1: { cellWidth: 16 },
+      2: { cellWidth: 38 },
     },
-    margin: { top: 30, bottom: 32 },
+    margin: { top: 26, bottom: 24 },
     didDrawPage: () => {
-      // Encabezado en cada hoja
       doc.setFontSize(12);
-      doc.text("Agroexport de Sonora", 14, 14);
+      doc.text("Agroexport de Sonora", 14, 12);
       doc.setFontSize(9);
-      doc.text("Lista de nomina semanal", 14, 20);
-      doc.text(`Campo: ${campoNombre}`, 14, 26);
-      doc.text(`Periodo: ${periodoLabel}`, 120, 26);
+      doc.text(`Lista de nomina semanal — Campo: ${campoNombre} — Periodo: ${periodoLabel}`, 14, 18);
 
-      // Firmas al pie de cada hoja
+      const ancho = doc.internal.pageSize.getWidth();
       const alto = doc.internal.pageSize.getHeight();
-      const y = alto - 18;
+      const y = alto - 12;
       doc.setFontSize(9);
-      doc.line(20, y, 90, y);
+      doc.line(20, y, 100, y);
       doc.text("Firma del ingeniero", 20, y + 5);
-      doc.line(120, y, 190, y);
-      doc.text("Firma de la apuntadora", 120, y + 5);
+      doc.line(ancho - 100, y, ancho - 20, y);
+      doc.text("Firma de la apuntadora", ancho - 100, y + 5);
     },
   });
 

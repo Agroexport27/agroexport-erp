@@ -7,6 +7,7 @@ import { generarExcelCensos, FilaCensoResumen } from "@/lib/excel/censoResumen";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
 import { generarPdfRecibosNomina, ReciboEmpleado } from "@/lib/pdf/reciboNomina";
+import { fechasDePeriodo } from "@/lib/utils/periodo";
 
 type Opcion = { id: string; label: string };
 
@@ -381,7 +382,10 @@ function VistaApuntador({
     recibos.sort((a, b) => a.clave.localeCompare(b.clave));
 
     const campoNombre = filas[0]?.campos?.nombre ?? "";
-    generarPdfRecibosNomina({ campoNombre, periodoLabel: nombreGrupo, recibos });
+    const semana = filas[0]?.periodo;
+    const anio = filas[0]?.periodo_anio;
+    const dias = semana && anio ? fechasDePeriodo(semana, anio) : [];
+    generarPdfRecibosNomina({ campoNombre, periodoLabel: nombreGrupo, dias, recibos });
   }
 
   async function eliminarRegistro(id: string) {

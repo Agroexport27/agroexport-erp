@@ -31,3 +31,40 @@ export function calcularPeriodo(fechaISO: string): {
 
   return { semana, anio };
 }
+
+// Inverso de calcularPeriodo: dado semana + anio, regresa las 7 fechas
+// de ese periodo (sabado a viernes), con su etiqueta corta (DIA DD/MES).
+const DIAS = ["DOM", "LUN", "MAR", "MIE", "JUE", "VIE", "SAB"];
+const MESES = [
+  "ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
+  "JUL", "AGO", "SEP", "OCT", "NOV", "DIC",
+];
+
+export function fechasDePeriodo(
+  semana: number,
+  anio: number
+): { fecha: string; etiqueta: string }[] {
+  function primerSabado(y: number): Date {
+    const enero1 = new Date(y, 0, 1);
+    const diaSemana = enero1.getDay();
+    const diasHastaSabado = (6 - diaSemana + 7) % 7;
+    return new Date(y, 0, 1 + diasHastaSabado);
+  }
+
+  const inicio = primerSabado(anio);
+  inicio.setDate(inicio.getDate() + (semana - 1) * 7);
+
+  const dias: { fecha: string; etiqueta: string }[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(inicio);
+    d.setDate(inicio.getDate() + i);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    dias.push({
+      fecha: `${yyyy}-${mm}-${dd}`,
+      etiqueta: `${DIAS[d.getDay()]} ${dd}/${MESES[d.getMonth()]}`,
+    });
+  }
+  return dias;
+}
