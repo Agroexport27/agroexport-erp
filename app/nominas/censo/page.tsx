@@ -11,6 +11,7 @@ type FilaTemporada = { actividadId: string; actividadNombre: string; cantidad: s
 
 const ETIQUETAS_CATEGORIA: Record<string, string> = {
   maquinaria_taller_almacen: "Maquinaria / Taller / Almacén",
+  tractor: "Tractor",
   riego: "Riego",
   jornal: "Jornal",
   operativo: "Operativo",
@@ -286,7 +287,7 @@ export default function CensoPage() {
     setTimeout(() => setMensajeExito(null), 4000);
   }
 
-  const categorias = ["maquinaria_taller_almacen", "riego", "jornal", "operativo"];
+  const categorias = ["maquinaria_taller_almacen", "tractor", "riego", "jornal", "operativo"];
 
   return (
     <div>

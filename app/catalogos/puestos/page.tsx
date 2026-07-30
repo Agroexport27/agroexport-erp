@@ -15,6 +15,7 @@ export default function PuestosPage() {
           type: "select",
           options: [
             { value: "maquinaria_taller_almacen", label: "Maquinaria/Taller/Almacén" },
+            { value: "tractor", label: "Tractor" },
             { value: "riego", label: "Riego" },
             { value: "jornal", label: "Jornal" },
             { value: "operativo", label: "Operativo" },
