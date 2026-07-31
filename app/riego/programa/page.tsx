@@ -83,15 +83,35 @@ export default function ProgramaRiegoPage() {
 
   async function cargarRecientes() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("riego_diario")
-      .select("id, fecha, horas_riego, sesion_id, observaciones, cuadros(nombre, campos(nombre))")
-      .order("fecha", { ascending: false })
-      .limit(300);
+    const [{ data, error }, { data: aplic }] = await Promise.all([
+      supabase
+        .from("riego_diario")
+        .select("id, fecha, horas_riego, sesion_id, observaciones, cuadros(nombre, campos(nombre))")
+        .order("fecha", { ascending: false })
+        .limit(300),
+      supabase
+        .from("aplicaciones")
+        .select("origen_id, cantidad, unidad, catalogo_productos(nombre)")
+        .eq("tipo", "fertirriego")
+        .eq("origen_tipo", "programa_riego"),
+    ]);
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
+    }
+
+    // Junta los productos de fertirriego por sesion (vienen repartidos
+    // por cuadro, aqui se agrupan de vuelta por producto)
+    const productosPorSesion = new Map<string, Map<string, any>>();
+    for (const a of (aplic ?? []) as any[]) {
+      if (!a.origen_id) continue;
+      const mapaProductos = productosPorSesion.get(a.origen_id) ?? new Map();
+      const nombre = a.catalogo_productos?.nombre ?? "";
+      const item = mapaProductos.get(nombre) ?? { nombre, cantidad: 0, unidad: a.unidad };
+      item.cantidad += Number(a.cantidad);
+      mapaProductos.set(nombre, item);
+      productosPorSesion.set(a.origen_id, mapaProductos);
     }
 
     // Agrupa por sesion_id (o por fecha+campo+horario para riegos viejos
@@ -108,6 +128,9 @@ export default function ProgramaRiegoPage() {
           campo: r.cuadros?.campos?.nombre ?? "",
           observaciones: r.observaciones,
           cuadros: [] as any[],
+          productos: r.sesion_id
+            ? Array.from((productosPorSesion.get(r.sesion_id) ?? new Map()).values())
+            : [],
           totalHoras: 0,
         };
       g.cuadros.push({ nombre: r.cuadros?.nombre, horas: r.horas_riego });
@@ -262,24 +285,13 @@ export default function ProgramaRiegoPage() {
     setTimeout(() => setMensajeExito(null), 5000);
   }
 
-  async function descargarPdfSesion(sesion: any) {
-    let productosPdf: any[] = [];
-    if (sesion.sesionId) {
-      const { data } = await supabase
-        .from("aplicaciones")
-        .select("cantidad, unidad, catalogo_productos(nombre)")
-        .eq("origen_id", sesion.sesionId)
-        .eq("tipo", "fertirriego");
-      // Agrupa por producto (ya viene repartido por cuadro, lo juntamos de vuelta)
-      const mapa = new Map<string, any>();
-      for (const a of (data ?? []) as any[]) {
-        const nombre = a.catalogo_productos?.nombre ?? "";
-        const item = mapa.get(nombre) ?? { nombre, cantidad: 0, unidad: a.unidad, dosisHa: null };
-        item.cantidad += Number(a.cantidad);
-        mapa.set(nombre, item);
-      }
-      productosPdf = Array.from(mapa.values());
-    }
+  function descargarPdfSesion(sesion: any) {
+    const productosPdf = sesion.productos.map((p: any) => ({
+      nombre: p.nombre,
+      cantidad: p.cantidad,
+      unidad: p.unidad,
+      dosisHa: null,
+    }));
 
     generarPdfRiego({
       fecha: sesion.fecha,
@@ -473,6 +485,31 @@ export default function ProgramaRiegoPage() {
               ))}
             </tbody>
           </table>
+          {s.productos.length > 0 && (
+            <>
+              <p className="border-t border-campo-100 bg-campo-50 px-4 py-1 text-xs font-medium text-campo-600">
+                Fertirriego aplicado
+              </p>
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs font-medium text-campo-600">
+                  <tr>
+                    <th className="px-4 py-1">Producto</th>
+                    <th className="px-4 py-1">Total aplicado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.productos.map((p: any, i: number) => (
+                    <tr key={i} className="border-t border-campo-50">
+                      <td className="px-4 py-1 text-campo-800">{p.nombre}</td>
+                      <td className="px-4 py-1 text-campo-800">
+                        {p.cantidad.toFixed(2)} {p.unidad}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
         </details>
       ))}
     </div>
