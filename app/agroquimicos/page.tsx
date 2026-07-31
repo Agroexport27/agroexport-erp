@@ -2,6 +2,8 @@ const SECCIONES = [
   { nombre: "Inventario (existencias)", href: "/agroquimicos/inventario", listo: true },
   { nombre: "Entradas y salidas", href: "/agroquimicos/movimientos", listo: true },
   { nombre: "Aplicaciones foliares", href: "/agroquimicos/aplicaciones", listo: true },
+  { nombre: "Registros (foliar + riego)", href: "/agroquimicos/registros", listo: true },
+  { nombre: "Reportes", href: "/agroquimicos/reportes", listo: true },
 ];
 
 export default function AgroquimicosPage() {

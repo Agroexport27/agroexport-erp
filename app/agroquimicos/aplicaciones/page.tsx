@@ -48,6 +48,7 @@ export default function AplicacionesFoliaresPage() {
   const [operador, setOperador] = useState("");
   const [noTractor, setNoTractor] = useState("");
   const [noAspersora, setNoAspersora] = useState("");
+  const [tipoAplicacion, setTipoAplicacion] = useState<"aspersora" | "dron">("aspersora");
   const [ltsPorTanque, setLtsPorTanque] = useState("");
   const [hasPorTanque, setHasPorTanque] = useState("");
   const [noCargas, setNoCargas] = useState("");
@@ -193,6 +194,7 @@ export default function AplicacionesFoliaresPage() {
         operador: operador || null,
         no_tractor: noTractor || null,
         no_aspersora: noAspersora || null,
+        tipo_aplicacion: tipoAplicacion,
         lts_por_tanque: ltsPorTanque ? parseFloat(ltsPorTanque) : null,
         has_por_tanque: hasPorTanque ? parseFloat(hasPorTanque) : null,
         no_cargas: noCargas ? parseInt(noCargas) : null,
@@ -246,7 +248,7 @@ export default function AplicacionesFoliaresPage() {
           cantidad: total * proporcion,
           unidad: productos.find((p) => p.id === l.productoId)?.unidad ?? "LT",
           tipo: "foliar",
-          metodo: noAspersora ? `Aspersora ${noAspersora}` : "Aspersión",
+          metodo: tipoAplicacion === "dron" ? `Dron ${noAspersora}`.trim() : `Aspersora ${noAspersora}`.trim(),
           origen_tipo: "aplicacion_foliar_producto",
           origen_id: aplicacionFoliarId,
         });
@@ -452,6 +454,17 @@ export default function AplicacionesFoliaresPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">No. tractor</label>
           <input className="input" value={noTractor} onChange={(e) => setNoTractor(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de aplicación</label>
+          <select
+            className="input"
+            value={tipoAplicacion}
+            onChange={(e) => setTipoAplicacion(e.target.value as "aspersora" | "dron")}
+          >
+            <option value="aspersora">Aspersora</option>
+            <option value="dron">Dron</option>
+          </select>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">No. aspersora</label>
