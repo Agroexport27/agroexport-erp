@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Opcion = { id: string; label: string };
-type FilaResumen = { nombre: string; cantidad: number; unidad: string };
 
 export default function ReportesAgroquimicosPage() {
   const supabase = createClient();
@@ -81,48 +80,79 @@ export default function ReportesAgroquimicosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { porProducto, porCampo, porCuadro, porTipo } = useMemo(() => {
-    const productoMap = new Map<string, FilaResumen>();
-    const campoMap = new Map<string, number>();
-    const cuadroMap = new Map<string, FilaResumen>();
-    const tipoMap = new Map<string, number>();
+  // Jerarquia 1: Campo -> Cuadro -> Producto
+  const jerarquiaCuadroProducto = useMemo(() => {
+    type NodoProducto = { nombre: string; cantidad: number; unidad: string };
+    type NodoCuadro = { nombre: string; productos: Map<string, NodoProducto> };
+    type NodoCampo = { nombre: string; cuadros: Map<string, NodoCuadro> };
 
+    const campoMap = new Map<string, NodoCampo>();
     for (const r of registros) {
-      const cantidad = Number(r.cantidad ?? 0);
-      const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
-      const p =
-        productoMap.get(nombreProducto) ?? { nombre: nombreProducto, cantidad: 0, unidad: r.unidad };
-      p.cantidad += cantidad;
-      productoMap.set(nombreProducto, p);
-
       const nombreCampo = r.cuadros?.campos?.nombre ?? "Sin campo";
-      campoMap.set(nombreCampo, (campoMap.get(nombreCampo) ?? 0) + cantidad);
-
       const nombreCuadro = r.cuadros?.nombre ?? "Sin cuadro";
-      const q =
-        cuadroMap.get(nombreCuadro) ?? { nombre: nombreCuadro, cantidad: 0, unidad: r.unidad };
-      q.cantidad += cantidad;
-      cuadroMap.set(nombreCuadro, q);
+      const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
+      const cantidad = Number(r.cantidad ?? 0);
 
-      const etiquetaTipo = r.tipo === "foliar" ? "Foliar" : "Vía riego";
-      tipoMap.set(etiquetaTipo, (tipoMap.get(etiquetaTipo) ?? 0) + cantidad);
+      const campo = campoMap.get(nombreCampo) ?? { nombre: nombreCampo, cuadros: new Map() };
+      const cuadro = campo.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, productos: new Map() };
+      const producto = cuadro.productos.get(nombreProducto) ?? { nombre: nombreProducto, cantidad: 0, unidad: r.unidad };
+      producto.cantidad += cantidad;
+      cuadro.productos.set(nombreProducto, producto);
+      campo.cuadros.set(nombreCuadro, cuadro);
+      campoMap.set(nombreCampo, campo);
     }
 
-    return {
-      porProducto: Array.from(productoMap.values()).sort((a, b) => b.cantidad - a.cantidad),
-      porCampo: Array.from(campoMap.entries())
-        .map(([nombre, cantidad]) => ({ nombre, cantidad }))
-        .sort((a, b) => b.cantidad - a.cantidad),
-      porCuadro: Array.from(cuadroMap.values()).sort((a, b) => b.cantidad - a.cantidad),
-      porTipo: Array.from(tipoMap.entries()).map(([nombre, cantidad]) => ({ nombre, cantidad })),
-    };
+    return Array.from(campoMap.values()).map((c) => ({
+      nombre: c.nombre,
+      cuadros: Array.from(c.cuadros.values())
+        .map((q) => ({
+          nombre: q.nombre,
+          productos: Array.from(q.productos.values()).sort((a, b) => b.cantidad - a.cantidad),
+          total: Array.from(q.productos.values()).reduce((s, p) => s + p.cantidad, 0),
+        }))
+        .sort((a, b) => b.total - a.total),
+    }));
+  }, [registros]);
+
+  // Jerarquia 2: Campo -> Producto -> Cuadro
+  const jerarquiaProductoCuadro = useMemo(() => {
+    type NodoCuadro = { nombre: string; cantidad: number; unidad: string };
+    type NodoProducto = { nombre: string; cuadros: Map<string, NodoCuadro> };
+    type NodoCampo = { nombre: string; productos: Map<string, NodoProducto> };
+
+    const campoMap = new Map<string, NodoCampo>();
+    for (const r of registros) {
+      const nombreCampo = r.cuadros?.campos?.nombre ?? "Sin campo";
+      const nombreCuadro = r.cuadros?.nombre ?? "Sin cuadro";
+      const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
+      const cantidad = Number(r.cantidad ?? 0);
+
+      const campo = campoMap.get(nombreCampo) ?? { nombre: nombreCampo, productos: new Map() };
+      const producto = campo.productos.get(nombreProducto) ?? { nombre: nombreProducto, cuadros: new Map() };
+      const cuadro = producto.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, cantidad: 0, unidad: r.unidad };
+      cuadro.cantidad += cantidad;
+      producto.cuadros.set(nombreCuadro, cuadro);
+      campo.productos.set(nombreProducto, producto);
+      campoMap.set(nombreCampo, campo);
+    }
+
+    return Array.from(campoMap.values()).map((c) => ({
+      nombre: c.nombre,
+      productos: Array.from(c.productos.values())
+        .map((p) => ({
+          nombre: p.nombre,
+          cuadros: Array.from(p.cuadros.values()).sort((a, b) => b.cantidad - a.cantidad),
+          total: Array.from(p.cuadros.values()).reduce((s, q) => s + q.cantidad, 0),
+        }))
+        .sort((a, b) => b.total - a.total),
+    }));
   }, [registros]);
 
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Reportes — Agroquímicos</h1>
       <p className="mb-6 text-sm text-campo-600">
-        Acumulado de productos aplicados (foliar y vía riego), por producto, campo o cuadro.
+        Acumulado de productos aplicados (foliar y vía riego), desglosado por campo, cuadro y producto.
       </p>
 
       {error && (
@@ -182,92 +212,86 @@ export default function ReportesAgroquimicosPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {porTipo.map((t) => (
-          <div key={t.nombre} className="card p-4">
-            <p className="text-xs text-campo-500">{t.nombre}</p>
-            <p className="text-2xl font-semibold text-campo-900">{t.cantidad.toFixed(1)}</p>
+      <h2 className="mb-2 mt-6 text-sm font-semibold text-campo-800">
+        Desglose por campo: Cuadros → Productos
+      </h2>
+      {jerarquiaCuadroProducto.length === 0 && (
+        <p className="text-sm text-campo-400">Sin datos en el rango seleccionado.</p>
+      )}
+      {jerarquiaCuadroProducto.map((campo) => (
+        <details key={campo.nombre} className="card mb-2 overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-100 px-4 py-2">
+            <span className="text-sm font-semibold text-campo-900">{campo.nombre}</span>
+          </summary>
+          <div className="px-3 py-2">
+            {campo.cuadros.map((cuadro) => (
+              <details key={cuadro.nombre} className="mb-1 rounded border border-campo-100">
+                <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-3 py-1.5">
+                  <span className="text-sm text-campo-800">{cuadro.nombre}</span>
+                </summary>
+                <table className="w-full text-sm">
+                  <thead className="text-left text-xs font-medium text-campo-500">
+                    <tr>
+                      <th className="px-4 py-1">Producto</th>
+                      <th className="px-4 py-1">Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cuadro.productos.map((p) => (
+                      <tr key={p.nombre} className="border-t border-campo-50">
+                        <td className="px-4 py-1 text-campo-800">{p.nombre}</td>
+                        <td className="px-4 py-1 text-campo-800">{p.cantidad.toFixed(2)} {p.unidad}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            ))}
           </div>
-        ))}
-      </div>
+        </details>
+      ))}
 
-      <div className="card mb-6 overflow-hidden">
-        <div className="bg-campo-50 px-4 py-2">
-          <h2 className="text-sm font-semibold text-campo-800">Acumulado por producto</h2>
-        </div>
-        <table className="w-full text-sm">
-          <thead className="text-left text-xs font-medium text-campo-600">
-            <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">Cantidad acumulada</th>
-            </tr>
-          </thead>
-          <tbody>
-            {porProducto.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={2}>Sin datos.</td></tr>
-            )}
-            {porProducto.map((p) => (
-              <tr key={p.nombre} className="border-t border-campo-50">
-                <td className="px-4 py-2 text-campo-800">{p.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{p.cantidad.toFixed(2)} {p.unidad}</td>
-              </tr>
+      <h2 className="mb-2 mt-8 text-sm font-semibold text-campo-800">
+        Desglose por campo: Productos → Cuadros
+      </h2>
+      {jerarquiaProductoCuadro.length === 0 && (
+        <p className="text-sm text-campo-400">Sin datos en el rango seleccionado.</p>
+      )}
+      {jerarquiaProductoCuadro.map((campo) => (
+        <details key={campo.nombre} className="card mb-2 overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-100 px-4 py-2">
+            <span className="text-sm font-semibold text-campo-900">{campo.nombre}</span>
+          </summary>
+          <div className="px-3 py-2">
+            {campo.productos.map((producto) => (
+              <details key={producto.nombre} className="mb-1 rounded border border-campo-100">
+                <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-3 py-1.5">
+                  <span className="text-sm text-campo-800">{producto.nombre}</span>
+                  <span className="text-xs text-campo-600">
+                    Total: {producto.total.toFixed(2)}
+                  </span>
+                </summary>
+                <table className="w-full text-sm">
+                  <thead className="text-left text-xs font-medium text-campo-500">
+                    <tr>
+                      <th className="px-4 py-1">Cuadro</th>
+                      <th className="px-4 py-1">Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {producto.cuadros.map((c) => (
+                      <tr key={c.nombre} className="border-t border-campo-50">
+                        <td className="px-4 py-1 text-campo-800">{c.nombre}</td>
+                        <td className="px-4 py-1 text-campo-800">{c.cantidad.toFixed(2)} {c.unidad}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="card mb-6 overflow-hidden">
-        <div className="bg-campo-50 px-4 py-2">
-          <h2 className="text-sm font-semibold text-campo-800">Acumulado por campo</h2>
-        </div>
-        <table className="w-full text-sm">
-          <thead className="text-left text-xs font-medium text-campo-600">
-            <tr>
-              <th className="px-4 py-2">Campo</th>
-              <th className="px-4 py-2">Cantidad acumulada (todas las unidades sumadas)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {porCampo.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={2}>Sin datos.</td></tr>
-            )}
-            {porCampo.map((c) => (
-              <tr key={c.nombre} className="border-t border-campo-50">
-                <td className="px-4 py-2 text-campo-800">{c.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{c.cantidad.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="border-t border-campo-50 px-4 py-2 text-[11px] text-campo-400">
-          Nota: si filtras por un producto específico, esta suma sí tiene una sola unidad. Si dejas "Todos los productos", son unidades distintas sumadas juntas — filtra por producto para un total exacto.
-        </p>
-      </div>
-
-      <div className="card overflow-hidden">
-        <div className="bg-campo-50 px-4 py-2">
-          <h2 className="text-sm font-semibold text-campo-800">Acumulado por cuadro</h2>
-        </div>
-        <table className="w-full text-sm">
-          <thead className="text-left text-xs font-medium text-campo-600">
-            <tr>
-              <th className="px-4 py-2">Cuadro</th>
-              <th className="px-4 py-2">Cantidad acumulada</th>
-            </tr>
-          </thead>
-          <tbody>
-            {porCuadro.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={2}>Sin datos.</td></tr>
-            )}
-            {porCuadro.map((c) => (
-              <tr key={c.nombre} className="border-t border-campo-50">
-                <td className="px-4 py-2 text-campo-800">{c.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{c.cantidad.toFixed(2)} {c.unidad}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </details>
+      ))}
     </div>
   );
 }

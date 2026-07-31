@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { calcularPeriodo, fechasDePeriodo } from "@/lib/utils/periodo";
 
 type Opcion = { id: string; label: string };
 
@@ -23,7 +22,6 @@ export default function RegistrosAgroquimicosPage() {
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [soloSemanaActual, setSoloSemanaActual] = useState(true);
 
   const [fechaInicio, setFechaInicio] = useState(inicioDeSemanaActual());
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
@@ -50,22 +48,13 @@ export default function RegistrosAgroquimicosPage() {
     setLoading(true);
     setError(null);
 
-    let desde = fechaInicio;
-    let hasta = fechaFin;
-    if (soloSemanaActual) {
-      const { semana, anio } = calcularPeriodo(new Date().toISOString().slice(0, 10));
-      const dias = fechasDePeriodo(semana, anio);
-      desde = dias[0].fecha;
-      hasta = dias[6].fecha;
-    }
-
     let query = supabase
       .from("aplicaciones")
       .select(
         "id, fecha, cantidad, unidad, tipo, metodo, catalogo_productos(nombre), cuadros(nombre, campo_id, campos(nombre))"
       )
-      .gte("fecha", desde)
-      .lte("fecha", hasta)
+      .gte("fecha", fechaInicio)
+      .lte("fecha", fechaFin)
       .order("fecha", { ascending: false });
 
     if (tipo) query = query.eq("tipo", tipo);
@@ -83,7 +72,7 @@ export default function RegistrosAgroquimicosPage() {
   useEffect(() => {
     consultar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [soloSemanaActual]);
+  }, []);
 
   const gruposPorTipo = useMemo(() => {
     const grupos: Record<string, any[]> = { foliar: [], fertirriego: [] };
@@ -145,56 +134,45 @@ export default function RegistrosAgroquimicosPage() {
         </div>
       )}
 
-      <label className="mb-4 flex items-center gap-2 text-sm text-campo-700">
-        <input
-          type="checkbox"
-          checked={soloSemanaActual}
-          onChange={(e) => setSoloSemanaActual(e.target.checked)}
-        />
-        Solo la semana actual (periodo)
-      </label>
-
-      {!soloSemanaActual && (
-        <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-5">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-campo-600">Desde</label>
-            <input type="date" className="input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-campo-600">Hasta</label>
-            <input type="date" className="input" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-campo-600">Campo</label>
-            <select className="input" value={campoId} onChange={(e) => setCampoId(e.target.value)}>
-              <option value="">Todos</option>
-              {campos.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-campo-600">Tipo</label>
-            <select className="input" value={tipo} onChange={(e) => setTipo(e.target.value as any)}>
-              <option value="">Todos</option>
-              <option value="foliar">Foliar</option>
-              <option value="fertirriego">Vía riego</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-campo-600">Producto</label>
-            <select className="input" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-              <option value="">Todos</option>
-              {productosOpciones.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
-            </select>
-          </div>
-          <button className="btn-primary" onClick={consultar} disabled={loading}>
-            {loading ? "Consultando..." : "Consultar"}
-          </button>
+      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-5">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Desde</label>
+          <input type="date" className="input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
         </div>
-      )}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Hasta</label>
+          <input type="date" className="input" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Campo</label>
+          <select className="input" value={campoId} onChange={(e) => setCampoId(e.target.value)}>
+            <option value="">Todos</option>
+            {campos.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo</label>
+          <select className="input" value={tipo} onChange={(e) => setTipo(e.target.value as any)}>
+            <option value="">Todos</option>
+            <option value="foliar">Foliar</option>
+            <option value="fertirriego">Vía riego</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Producto</label>
+          <select className="input" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
+            <option value="">Todos</option>
+            {productosOpciones.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+        <button className="btn-primary" onClick={consultar} disabled={loading}>
+          {loading ? "Consultando..." : "Consultar"}
+        </button>
+      </div>
 
       <TablaTipo titulo="Foliar" filas={gruposPorTipo.foliar} />
       <TablaTipo titulo="Vía riego" filas={gruposPorTipo.fertirriego} />

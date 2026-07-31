@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarPdfAplicacionFoliar } from "@/lib/pdf/aplicacionFoliar";
+import { calcularPeriodo, fechasDePeriodo } from "@/lib/utils/periodo";
 
 type Opcion = { id: string; label: string; grupo?: string };
 type Producto = { id: string; nombre: string; unidad: string };
@@ -96,11 +97,14 @@ export default function AplicacionesFoliaresPage() {
 
   async function cargarRecientes() {
     setLoading(true);
+    const { semana, anio } = calcularPeriodo(new Date().toISOString().slice(0, 10));
+    const dias = fechasDePeriodo(semana, anio);
     const { data, error } = await supabase
       .from("aplicacion_foliar")
       .select("id, folio, fecha_aplicacion, campos(nombre), aplicacion_foliar_cuadro(cuadros(nombre)), aplicacion_foliar_producto(total_utilizado, catalogo_productos(nombre))")
-      .order("fecha_aplicacion", { ascending: false })
-      .limit(30);
+      .gte("fecha_aplicacion", dias[0].fecha)
+      .lte("fecha_aplicacion", dias[6].fecha)
+      .order("fecha_aplicacion", { ascending: false });
     if (error) setError(error.message);
     else setRecientes(data ?? []);
     setLoading(false);
@@ -554,7 +558,7 @@ export default function AplicacionesFoliaresPage() {
         {guardando ? "Guardando..." : "Guardar aplicación"}
       </button>
 
-      <h2 className="mb-2 text-sm font-semibold text-campo-800">Aplicaciones recientes</h2>
+      <h2 className="mb-2 text-sm font-semibold text-campo-800">Aplicaciones recientes (semana actual)</h2>
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
