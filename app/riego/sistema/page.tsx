@@ -19,7 +19,12 @@ export default function SistemaRiegoPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
-  const [editando, setEditando] = useState<Record<string, { caudal: string; sepGoteros: string; sepLineas: string }>>({});
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
+
+  const [caudalMasivo, setCaudalMasivo] = useState("");
+  const [sepGoterosMasivo, setSepGoterosMasivo] = useState("");
+  const [sepLineasMasivo, setSepLineasMasivo] = useState("");
+  const [guardandoMasivo, setGuardandoMasivo] = useState(false);
 
   async function cargar() {
     setLoading(true);
@@ -40,44 +45,6 @@ export default function SistemaRiegoPage() {
     cargar();
   }, []);
 
-  function empezarEdicion(cuadroId: string) {
-    const s = sistemas[cuadroId];
-    setEditando({
-      ...editando,
-      [cuadroId]: {
-        caudal: s ? String(s.caudal_gotero_lh) : "",
-        sepGoteros: s ? String(s.separacion_goteros_m) : "",
-        sepLineas: s ? String(s.separacion_lineas_m) : "",
-      },
-    });
-  }
-
-  async function guardar(cuadroId: string) {
-    const v = editando[cuadroId];
-    if (!v || !v.caudal || !v.sepGoteros || !v.sepLineas) {
-      setError("Llena los 3 valores antes de guardar.");
-      return;
-    }
-    const existente = sistemas[cuadroId];
-    const payload = {
-      cuadro_id: cuadroId,
-      caudal_gotero_lh: parseFloat(v.caudal),
-      separacion_goteros_m: parseFloat(v.sepGoteros),
-      separacion_lineas_m: parseFloat(v.sepLineas),
-    };
-    const { error } = existente
-      ? await supabase.from("sistema_riego_cuadro").update(payload).eq("id", existente.id)
-      : await supabase.from("sistema_riego_cuadro").insert(payload);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    const nuevo = { ...editando };
-    delete nuevo[cuadroId];
-    setEditando(nuevo);
-    cargar();
-  }
-
   const cuadrosFiltrados = cuadros.filter(
     (c) =>
       !busqueda.trim() ||
@@ -85,11 +52,62 @@ export default function SistemaRiegoPage() {
       c.campos?.nombre?.toLowerCase().includes(busqueda.toLowerCase())
   );
 
+  function toggle(id: string) {
+    setSeleccionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleTodos() {
+    if (seleccionados.size === cuadrosFiltrados.length) {
+      setSeleccionados(new Set());
+    } else {
+      setSeleccionados(new Set(cuadrosFiltrados.map((c) => c.id)));
+    }
+  }
+
+  async function aplicarMasivo() {
+    if (seleccionados.size === 0) {
+      setError("Selecciona al menos un cuadro (casillas de la izquierda).");
+      return;
+    }
+    if (!caudalMasivo || !sepGoterosMasivo || !sepLineasMasivo) {
+      setError("Llena caudal y las dos separaciones antes de aplicar.");
+      return;
+    }
+    setGuardandoMasivo(true);
+    setError(null);
+
+    const payload = {
+      caudal_gotero_lh: parseFloat(caudalMasivo),
+      separacion_goteros_m: parseFloat(sepGoterosMasivo),
+      separacion_lineas_m: parseFloat(sepLineasMasivo),
+    };
+
+    for (const cuadroId of seleccionados) {
+      const existente = sistemas[cuadroId];
+      if (existente) {
+        await supabase.from("sistema_riego_cuadro").update(payload).eq("id", existente.id);
+      } else {
+        await supabase.from("sistema_riego_cuadro").insert({ cuadro_id: cuadroId, ...payload });
+      }
+    }
+
+    setGuardandoMasivo(false);
+    setSeleccionados(new Set());
+    cargar();
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Sistema de riego por cuadro</h1>
       <p className="mb-6 text-sm text-campo-600">
-        Estos valores se usan para calcular la lámina de riego automáticamente en los reportes.
+        Caudal del gotero y separaciones (la "cinta") — normalmente es la
+        misma para muchos cuadros, así que puedes aplicarla a varios a la
+        vez.
       </p>
 
       {error && (
@@ -97,6 +115,44 @@ export default function SistemaRiegoPage() {
           {error}
         </div>
       )}
+
+      <div className="card mb-4 flex flex-wrap items-end gap-3 p-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Caudal gotero (L/h)</label>
+          <input
+            type="number"
+            step="any"
+            className="input w-32"
+            value={caudalMasivo}
+            onChange={(e) => setCaudalMasivo(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Sep. goteros (m)</label>
+          <input
+            type="number"
+            step="any"
+            className="input w-32"
+            value={sepGoterosMasivo}
+            onChange={(e) => setSepGoterosMasivo(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Sep. líneas (m)</label>
+          <input
+            type="number"
+            step="any"
+            className="input w-32"
+            value={sepLineasMasivo}
+            onChange={(e) => setSepLineasMasivo(e.target.value)}
+          />
+        </div>
+        <button className="btn-primary" onClick={aplicarMasivo} disabled={guardandoMasivo}>
+          {guardandoMasivo
+            ? "Aplicando..."
+            : `Aplicar a ${seleccionados.size} seleccionados`}
+        </button>
+      </div>
 
       <input
         className="input mb-4 max-w-xs"
@@ -109,12 +165,18 @@ export default function SistemaRiegoPage() {
         <table className="w-full min-w-[560px] text-sm">
           <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
             <tr>
+              <th className="px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={seleccionados.size === cuadrosFiltrados.length && cuadrosFiltrados.length > 0}
+                  onChange={toggleTodos}
+                />
+              </th>
               <th className="px-4 py-2">Campo</th>
               <th className="px-4 py-2">Cuadro</th>
               <th className="px-4 py-2">Caudal gotero (L/h)</th>
               <th className="px-4 py-2">Sep. goteros (m)</th>
               <th className="px-4 py-2">Sep. líneas (m)</th>
-              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -124,64 +186,25 @@ export default function SistemaRiegoPage() {
             {!loading &&
               cuadrosFiltrados.map((c) => {
                 const s = sistemas[c.id];
-                const enEdicion = editando[c.id];
                 return (
-                  <tr key={c.id} className="border-t border-campo-50">
+                  <tr
+                    key={c.id}
+                    className={`border-t border-campo-50 ${
+                      seleccionados.has(c.id) ? "bg-campo-50" : ""
+                    }`}
+                  >
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={seleccionados.has(c.id)}
+                        onChange={() => toggle(c.id)}
+                      />
+                    </td>
                     <td className="px-4 py-2 text-campo-800">{c.campos?.nombre}</td>
                     <td className="px-4 py-2 text-campo-800">{c.nombre}</td>
-                    {enEdicion ? (
-                      <>
-                        <td className="px-2 py-1">
-                          <input
-                            type="number"
-                            step="any"
-                            className="input w-24"
-                            value={enEdicion.caudal}
-                            onChange={(e) =>
-                              setEditando({ ...editando, [c.id]: { ...enEdicion, caudal: e.target.value } })
-                            }
-                          />
-                        </td>
-                        <td className="px-2 py-1">
-                          <input
-                            type="number"
-                            step="any"
-                            className="input w-24"
-                            value={enEdicion.sepGoteros}
-                            onChange={(e) =>
-                              setEditando({ ...editando, [c.id]: { ...enEdicion, sepGoteros: e.target.value } })
-                            }
-                          />
-                        </td>
-                        <td className="px-2 py-1">
-                          <input
-                            type="number"
-                            step="any"
-                            className="input w-24"
-                            value={enEdicion.sepLineas}
-                            onChange={(e) =>
-                              setEditando({ ...editando, [c.id]: { ...enEdicion, sepLineas: e.target.value } })
-                            }
-                          />
-                        </td>
-                        <td className="px-2 py-1 text-right">
-                          <button className="btn-secondary" onClick={() => guardar(c.id)}>
-                            Guardar
-                          </button>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-4 py-2 text-campo-800">{s?.caudal_gotero_lh ?? "—"}</td>
-                        <td className="px-4 py-2 text-campo-800">{s?.separacion_goteros_m ?? "—"}</td>
-                        <td className="px-4 py-2 text-campo-800">{s?.separacion_lineas_m ?? "—"}</td>
-                        <td className="px-4 py-2 text-right">
-                          <button className="btn-secondary" onClick={() => empezarEdicion(c.id)}>
-                            {s ? "Editar" : "Definir"}
-                          </button>
-                        </td>
-                      </>
-                    )}
+                    <td className="px-4 py-2 text-campo-800">{s?.caudal_gotero_lh ?? "—"}</td>
+                    <td className="px-4 py-2 text-campo-800">{s?.separacion_goteros_m ?? "—"}</td>
+                    <td className="px-4 py-2 text-campo-800">{s?.separacion_lineas_m ?? "—"}</td>
                   </tr>
                 );
               })}

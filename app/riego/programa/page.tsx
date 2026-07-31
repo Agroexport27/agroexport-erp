@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
+import { generarPdfRiego } from "@/lib/pdf/riego";
 
 type Opcion = { id: string; label: string; grupo?: string };
 type Producto = { id: string; nombre: string; unidad: string };
@@ -18,6 +19,15 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
+function horasEntre(inicio: string, fin: string): number | null {
+  if (!inicio || !fin) return null;
+  const [h1, m1] = inicio.split(":").map(Number);
+  const [h2, m2] = fin.split(":").map(Number);
+  let minutos = h2 * 60 + m2 - (h1 * 60 + m1);
+  if (minutos < 0) minutos += 24 * 60; // cruza medianoche
+  return Math.round((minutos / 60) * 100) / 100;
+}
+
 export default function ProgramaRiegoPage() {
   const supabase = createClient();
 
@@ -25,7 +35,7 @@ export default function ProgramaRiegoPage() {
   const [cuadrosTodos, setCuadrosTodos] = useState<(Opcion & { hectareas: number })[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [ciclos, setCiclos] = useState<{ id: string; clave: string; fecha_inicio: string; fecha_fin: string }[]>([]);
-  const [recientes, setRecientes] = useState<any[]>([]);
+  const [sesiones, setSesiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,10 +47,19 @@ export default function ProgramaRiegoPage() {
   const [horaInicio, setHoraInicio] = useState("");
   const [horaFin, setHoraFin] = useState("");
   const [horas, setHoras] = useState("");
+  const [horasEditadoManual, setHorasEditadoManual] = useState(false);
 
   const [lineas, setLineas] = useState<LineaProducto[]>([
     { key: uid(), productoId: "", productoTexto: "", dosisHa: "" },
   ]);
+
+  // Calcula las horas totales solas en cuanto pones inicio y fin, a
+  // menos que el usuario ya las haya tecleado el a mano.
+  useEffect(() => {
+    if (horasEditadoManual) return;
+    const calc = horasEntre(horaInicio, horaFin);
+    if (calc != null) setHoras(String(calc));
+  }, [horaInicio, horaFin, horasEditadoManual]);
 
   async function cargarCatalogos() {
     const [{ data: camp }, { data: cua }, { data: prod }, { data: cic }] = await Promise.all([
@@ -66,11 +85,36 @@ export default function ProgramaRiegoPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("riego_diario")
-      .select("id, fecha, horas_riego, cuadros(nombre, campos(nombre))")
+      .select("id, fecha, horas_riego, sesion_id, observaciones, cuadros(nombre, campos(nombre))")
       .order("fecha", { ascending: false })
-      .limit(50);
-    if (error) setError(error.message);
-    else setRecientes(data ?? []);
+      .limit(300);
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+
+    // Agrupa por sesion_id (o por fecha+campo+horario para riegos viejos
+    // que no tengan sesion_id)
+    const grupos = new Map<string, any>();
+    for (const r of (data ?? []) as any[]) {
+      const key = r.sesion_id ?? `${r.fecha}__${r.cuadros?.campos?.nombre}__${r.observaciones}`;
+      const g =
+        grupos.get(key) ??
+        {
+          key,
+          sesionId: r.sesion_id,
+          fecha: r.fecha,
+          campo: r.cuadros?.campos?.nombre ?? "",
+          observaciones: r.observaciones,
+          cuadros: [] as any[],
+          totalHoras: 0,
+        };
+      g.cuadros.push({ nombre: r.cuadros?.nombre, horas: r.horas_riego });
+      g.totalHoras += Number(r.horas_riego);
+      grupos.set(key, g);
+    }
+    setSesiones(Array.from(grupos.values()));
     setLoading(false);
   }
 
@@ -127,13 +171,17 @@ export default function ProgramaRiegoPage() {
     setGuardando(true);
     setError(null);
 
-    // 1) Horas de riego, una fila por cuadro
+    const sesionId = crypto.randomUUID();
+    const observaciones =
+      horaInicio || horaFin ? `Horario: ${horaInicio || "?"} - ${horaFin || "?"}` : null;
+
+    // 1) Horas de riego, una fila por cuadro, todas con el mismo sesion_id
     const filasRiego = cuadroIds.map((cuadroId) => ({
       cuadro_id: cuadroId,
       fecha,
       horas_riego: parseFloat(horas),
-      observaciones:
-        horaInicio || horaFin ? `Horario: ${horaInicio || "?"} - ${horaFin || "?"}` : null,
+      observaciones,
+      sesion_id: sesionId,
     }));
     const { error: errRiego } = await supabase.from("riego_diario").insert(filasRiego);
     if (errRiego) {
@@ -143,8 +191,6 @@ export default function ProgramaRiegoPage() {
     }
 
     if (lineasValidas.length > 0 && ciclo) {
-      // 2) plan_riego (encabezado) + plan_riego_producto (fertirriego), y
-      // la tabla unificada "aplicaciones" para acumulados por cuadro.
       const filasAplicaciones: any[] = [];
       const totalesPorProducto: Record<string, number> = {};
 
@@ -162,6 +208,8 @@ export default function ProgramaRiegoPage() {
             unidad: productos.find((p) => p.id === l.productoId)?.unidad ?? "LT",
             tipo: "fertirriego",
             metodo: "Riego por goteo",
+            origen_tipo: "programa_riego",
+            origen_id: sesionId,
           });
           totalesPorProducto[l.productoId] = (totalesPorProducto[l.productoId] ?? 0) + cantidad;
         }
@@ -175,7 +223,6 @@ export default function ProgramaRiegoPage() {
         return;
       }
 
-      // 3) Descuenta el inventario de agroquimicos (una salida por producto, a nivel campo)
       const filasMovimiento = Object.entries(totalesPorProducto).map(([productoId, cantidad]) => ({
         producto_id: productoId,
         campo_id: campoId,
@@ -183,7 +230,8 @@ export default function ProgramaRiegoPage() {
         tipo: "salida",
         cantidad,
         observaciones: "Fertirriego",
-        origen_tipo: "aplicaciones_fertirriego",
+        origen_tipo: "programa_riego",
+        origen_id: sesionId,
       }));
       const { error: errMov } = await supabase
         .from("movimientos_inventario_agroquimicos")
@@ -201,10 +249,12 @@ export default function ProgramaRiegoPage() {
     setGuardando(false);
     setMensajeExito(
       `Riego guardado en ${cuadroIds.length} cuadro(s)` +
-        (lineasValidas.length > 0 ? `, con ${lineasValidas.length} producto(s) de fertirriego.` : ".")
+        (lineasValidas.length > 0 ? `, con ${lineasValidas.length} producto(s) de fertirriego.` : ".") +
+        " Puedes capturar otro riego más para el mismo día sin problema."
     );
     setCuadroIds([]);
     setHoras("");
+    setHorasEditadoManual(false);
     setHoraInicio("");
     setHoraFin("");
     setLineas([{ key: uid(), productoId: "", productoTexto: "", dosisHa: "" }]);
@@ -212,11 +262,42 @@ export default function ProgramaRiegoPage() {
     setTimeout(() => setMensajeExito(null), 5000);
   }
 
+  async function descargarPdfSesion(sesion: any) {
+    let productosPdf: any[] = [];
+    if (sesion.sesionId) {
+      const { data } = await supabase
+        .from("aplicaciones")
+        .select("cantidad, unidad, catalogo_productos(nombre)")
+        .eq("origen_id", sesion.sesionId)
+        .eq("tipo", "fertirriego");
+      // Agrupa por producto (ya viene repartido por cuadro, lo juntamos de vuelta)
+      const mapa = new Map<string, any>();
+      for (const a of (data ?? []) as any[]) {
+        const nombre = a.catalogo_productos?.nombre ?? "";
+        const item = mapa.get(nombre) ?? { nombre, cantidad: 0, unidad: a.unidad, dosisHa: null };
+        item.cantidad += Number(a.cantidad);
+        mapa.set(nombre, item);
+      }
+      productosPdf = Array.from(mapa.values());
+    }
+
+    generarPdfRiego({
+      fecha: sesion.fecha,
+      campoNombre: sesion.campo,
+      horaInicio: sesion.observaciones?.match(/Horario: (\S+)/)?.[1] ?? null,
+      horaFin: sesion.observaciones?.match(/- (\S+)$/)?.[1] ?? null,
+      cuadros: sesion.cuadros,
+      productos: productosPdf,
+    });
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Programa de riego</h1>
       <p className="mb-6 text-sm text-campo-600">
-        Registra horas de riego y fertirriego para varios cuadros a la vez — descuenta el inventario solo.
+        Registra horas de riego y fertirriego para varios cuadros a la vez.
+        Puedes guardar hasta 6 riegos distintos el mismo día sin problema —
+        cada uno queda como un registro separado.
       </p>
 
       <datalist id="productos-datalist-riego">
@@ -272,15 +353,29 @@ export default function ProgramaRiegoPage() {
           <input type="time" className="input" value={horaFin} onChange={(e) => setHoraFin(e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Horas totales</label>
+          <label className="mb-1 block text-xs font-medium text-campo-600">
+            Horas totales {!horasEditadoManual && horas && <span className="text-campo-400">(auto)</span>}
+          </label>
           <input
             type="number"
             step="any"
             className="input"
             placeholder="ej. 6"
             value={horas}
-            onChange={(e) => setHoras(e.target.value)}
+            onChange={(e) => {
+              setHoras(e.target.value);
+              setHorasEditadoManual(true);
+            }}
           />
+          {horasEditadoManual && (
+            <button
+              type="button"
+              className="mt-1 text-[11px] text-campo-500 underline"
+              onClick={() => setHorasEditadoManual(false)}
+            >
+              Volver a calcular automático
+            </button>
+          )}
         </div>
       </div>
 
@@ -339,36 +434,47 @@ export default function ProgramaRiegoPage() {
       </div>
 
       <button className="btn-primary mb-8" onClick={guardar} disabled={guardando}>
-        {guardando ? "Guardando..." : "Guardar riego del día"}
+        {guardando ? "Guardando..." : "Guardar este riego"}
       </button>
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">Riegos recientes</h2>
-      <div className="card overflow-x-auto">
-        <table className="w-full min-w-[420px] text-sm">
-          <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
-            <tr>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Campo</th>
-              <th className="px-4 py-2">Cuadro</th>
-              <th className="px-4 py-2">Horas</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={4}>Cargando...</td></tr>}
-            {!loading && recientes.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={4}>Todavía no hay riegos.</td></tr>
-            )}
-            {recientes.map((r: any) => (
-              <tr key={r.id} className="border-t border-campo-50">
-                <td className="px-4 py-2 text-campo-800">{r.fecha}</td>
-                <td className="px-4 py-2 text-campo-800">{r.cuadros?.campos?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.cuadros?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.horas_riego}</td>
+      {loading && <p className="text-sm text-campo-400">Cargando...</p>}
+      {!loading && sesiones.length === 0 && (
+        <p className="text-sm text-campo-400">Todavía no hay riegos.</p>
+      )}
+      {sesiones.map((s) => (
+        <details key={s.key} className="card mb-2 overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
+            <span className="text-sm font-medium text-campo-800">
+              {s.fecha} — {s.campo}
+              <span className="ml-2 font-normal text-campo-500">
+                ({s.cuadros.length} cuadro(s) · {s.totalHoras.toFixed(1)} h)
+              </span>
+            </span>
+            <span onClick={(e) => e.preventDefault()}>
+              <button className="btn-secondary" onClick={() => descargarPdfSesion(s)}>
+                Descargar PDF
+              </button>
+            </span>
+          </summary>
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs font-medium text-campo-600">
+              <tr>
+                <th className="px-4 py-1">Cuadro</th>
+                <th className="px-4 py-1">Horas</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {s.cuadros.map((c: any, i: number) => (
+                <tr key={i} className="border-t border-campo-50">
+                  <td className="px-4 py-1 text-campo-800">{c.nombre}</td>
+                  <td className="px-4 py-1 text-campo-800">{c.horas}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      ))}
     </div>
   );
 }

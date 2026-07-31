@@ -19,7 +19,7 @@ export default function ReportesRiegoPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [fechaInicio, setFechaInicio] = useState(
-    new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().slice(0, 10)
+    new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString().slice(0, 10)
   );
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
@@ -206,7 +206,10 @@ export default function ReportesRiegoPage() {
 
       {/* Grafica de barras: horas por mes */}
       <div className="card mb-6 p-4">
-        <h2 className="mb-3 text-sm font-semibold text-campo-800">Horas de riego por mes</h2>
+        <h2 className="mb-1 text-sm font-semibold text-campo-800">Horas de riego por mes</h2>
+        <p className="mb-3 text-xs text-campo-500">
+          Muestra los meses dentro del rango "Desde/Hasta" de arriba — amplía el rango para ver más meses (ej. julio, agosto, septiembre).
+        </p>
         {porMes.length === 0 && <p className="text-sm text-campo-400">Sin datos.</p>}
         <div className="space-y-2">
           {porMes.map((m) => (
