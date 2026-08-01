@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { generarExcelReporteAgroquimicos } from "@/lib/excel/reporteAgroquimicos";
+import { generarPdfReporteAgroquimicos } from "@/lib/pdf/reporteAgroquimicos";
 
 type Opcion = { id: string; label: string };
 
@@ -148,6 +150,36 @@ export default function ReportesAgroquimicosPage() {
     }));
   }, [registros]);
 
+  const rango = `${fechaInicio}_a_${fechaFin}`;
+
+  function descargarExcel() {
+    const cuadroProducto: { campo: string; cuadro: string; producto: string; cantidad: number; unidad: string }[] = [];
+    for (const campo of jerarquiaCuadroProducto) {
+      for (const cuadro of campo.cuadros) {
+        for (const p of cuadro.productos) {
+          cuadroProducto.push({ campo: campo.nombre, cuadro: cuadro.nombre, producto: p.nombre, cantidad: p.cantidad, unidad: p.unidad });
+        }
+      }
+    }
+    const productoCuadro: { campo: string; producto: string; cuadro: string; cantidad: number; unidad: string }[] = [];
+    for (const campo of jerarquiaProductoCuadro) {
+      for (const p of campo.productos) {
+        for (const c of p.cuadros) {
+          productoCuadro.push({ campo: campo.nombre, producto: p.nombre, cuadro: c.nombre, cantidad: c.cantidad, unidad: c.unidad });
+        }
+      }
+    }
+    generarExcelReporteAgroquimicos({ rango, cuadroProducto, productoCuadro });
+  }
+
+  function descargarPdf() {
+    generarPdfReporteAgroquimicos({
+      rango,
+      jerarquiaCuadroProducto,
+      jerarquiaProductoCuadro,
+    });
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Reportes — Agroquímicos</h1>
@@ -205,9 +237,15 @@ export default function ReportesAgroquimicosPage() {
             ))}
           </select>
         </div>
-        <div className="sm:col-span-2 md:col-span-6">
+        <div className="flex flex-wrap gap-2 sm:col-span-2 md:col-span-6">
           <button className="btn-primary" onClick={consultar} disabled={loading}>
             {loading ? "Consultando..." : "Consultar"}
+          </button>
+          <button className="btn-secondary" onClick={descargarExcel}>
+            Descargar Excel
+          </button>
+          <button className="btn-secondary" onClick={descargarPdf}>
+            Descargar PDF
           </button>
         </div>
       </div>

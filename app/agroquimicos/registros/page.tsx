@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { generarPdfRegistrosAgroquimicos } from "@/lib/pdf/registrosAgroquimicos";
 
 type Opcion = { id: string; label: string };
 
@@ -121,6 +122,25 @@ export default function RegistrosAgroquimicosPage() {
     );
   }
 
+  function descargarPdf() {
+    function mapear(filas: any[]) {
+      return filas.map((r) => ({
+        fecha: r.fecha,
+        campo: r.cuadros?.campos?.nombre ?? "",
+        cuadro: r.cuadros?.nombre ?? "",
+        producto: r.catalogo_productos?.nombre ?? "",
+        cantidad: Number(r.cantidad ?? 0),
+        unidad: r.unidad,
+        metodo: r.metodo ?? "—",
+      }));
+    }
+    generarPdfRegistrosAgroquimicos({
+      rango: `${fechaInicio}_a_${fechaFin}`,
+      foliar: mapear(gruposPorTipo.foliar),
+      fertirriego: mapear(gruposPorTipo.fertirriego),
+    });
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Registros — Agroquímicos</h1>
@@ -171,6 +191,9 @@ export default function RegistrosAgroquimicosPage() {
         </div>
         <button className="btn-primary" onClick={consultar} disabled={loading}>
           {loading ? "Consultando..." : "Consultar"}
+        </button>
+        <button className="btn-secondary" onClick={descargarPdf}>
+          Descargar PDF
         </button>
       </div>
 
