@@ -3,6 +3,7 @@ const CATALOGOS = [
   { nombre: "Cuadros", href: "/catalogos/cuadros", listo: true },
   { nombre: "Ciclos", href: "/catalogos/ciclos", listo: true },
   { nombre: "Cultivos", href: "/catalogos/cultivos", listo: true },
+  { nombre: "Programa", href: "/catalogos/programa", listo: true },
   { nombre: "Viveros", href: "/catalogos/viveros", listo: true },
   { nombre: "Proveedores de semilla", href: "/catalogos/proveedores-semilla", listo: true },
   { nombre: "Distribuidores", href: "/catalogos/distribuidores", listo: true },
