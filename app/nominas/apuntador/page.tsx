@@ -6,6 +6,7 @@ import { calcularPeriodo } from "@/lib/utils/periodo";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
 import BuscadorEmpleado from "@/components/BuscadorEmpleado";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 
 type Empleado = { id: string; clave: string; nombre: string };
 type Opcion = { id: string; label: string };
@@ -135,11 +136,11 @@ export default function ApuntadorPage() {
   }
 
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: act }, { data: cua }, { data: cult }] =
+    const [{ data: camp }, { data: act }, cua, { data: cult }] =
       await Promise.all([
         supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
         supabase.from("actividades").select("id, nombre").eq("activo", true).order("nombre"),
-        supabase.from("cuadros").select("id, nombre, hectareas, cultivo_id, campos(nombre)").order("nombre"),
+        obtenerCuadrosPermitidos(supabase),
         supabase.from("cultivos").select("id, nombre").eq("activo", true).order("nombre"),
       ]);
     // Empleados puede superar el limite de filas por request (miles de
@@ -157,22 +158,20 @@ export default function ApuntadorPage() {
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setEmpleados(emp ?? []);
     setActividades((act ?? []).map((a: any) => ({ id: a.id, label: a.nombre })));
-    setCuadros((cua ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
+    setCuadros(cua.map((c) => ({ id: c.id, label: c.nombre })));
     setCultivos((cult ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     const cultivoPorCuadro: Record<string, string> = {};
-    for (const c of (cua ?? []) as any[]) {
-      if (c.cultivo_id) cultivoPorCuadro[c.id] = c.cultivo_id;
+    for (const c of cua) {
+      if (c.cultivoId) cultivoPorCuadro[c.id] = c.cultivoId;
     }
     setCultivoPorCuadro(cultivoPorCuadro);
 
-    // Total de hectareas por campo (suma de TODOS sus cuadros), usado
-    // para prorratear costos "generales" hasta que tengamos el Programa
-    // con los cuadros realmente activos por ciclo.
+    // Total de hectareas por campo, ahora ya basado en los cuadros del
+    // Programa activo (2026-2 / 2027-1) cuando el campo lo tiene; si un
+    // campo aun no tiene Programa, usa todos sus cuadros como respaldo.
     const totales: Record<string, number> = {};
-    for (const c of (cua ?? []) as any[]) {
-      const nombreCampo = c.campos?.nombre;
-      if (!nombreCampo) continue;
-      totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(c.hectareas ?? 0);
+    for (const c of cua) {
+      totales[c.campoNombre] = (totales[c.campoNombre] ?? 0) + c.hectareas;
     }
     setHectareasPorCampo(totales);
   }

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarPdfAplicacionFoliar } from "@/lib/pdf/aplicacionFoliar";
 import { calcularPeriodo, fechasDePeriodo } from "@/lib/utils/periodo";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 
 type Opcion = { id: string; label: string; grupo?: string };
 type Producto = { id: string; nombre: string; unidad: string };
@@ -71,10 +72,10 @@ export default function AplicacionesFoliaresPage() {
   ]);
 
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: cua }, { data: cult }, { data: vars }, { data: prod }, { data: cic }] =
+    const [{ data: camp }, cua, { data: cult }, { data: vars }, { data: prod }, { data: cic }] =
       await Promise.all([
         supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-        supabase.from("cuadros").select("id, nombre, hectareas, campos(nombre)").order("nombre"),
+        obtenerCuadrosPermitidos(supabase),
         supabase.from("cultivos").select("id, nombre").eq("activo", true).order("nombre"),
         supabase.from("variedades").select("id, nombre, cultivo_id").eq("activo", true).order("nombre"),
         supabase.from("catalogo_productos").select("id, nombre, unidad").eq("activo", true).order("nombre"),
@@ -82,11 +83,11 @@ export default function AplicacionesFoliaresPage() {
       ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setCuadrosTodos(
-      (cua ?? []).map((c: any) => ({
+      cua.map((c) => ({
         id: c.id,
         label: c.nombre,
-        grupo: c.campos?.nombre ?? "Sin campo",
-        hectareas: Number(c.hectareas ?? 0),
+        grupo: c.campoNombre,
+        hectareas: c.hectareas,
       }))
     );
     setCultivos((cult ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));

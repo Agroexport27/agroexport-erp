@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarPdfRiego } from "@/lib/pdf/riego";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 
 type Opcion = { id: string; label: string; grupo?: string };
 type Producto = { id: string; nombre: string; unidad: string };
@@ -62,19 +63,19 @@ export default function ProgramaRiegoPage() {
   }, [horaInicio, horaFin, horasEditadoManual]);
 
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: cua }, { data: prod }, { data: cic }] = await Promise.all([
+    const [{ data: camp }, cua, { data: prod }, { data: cic }] = await Promise.all([
       supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-      supabase.from("cuadros").select("id, nombre, hectareas, campos(nombre)").order("nombre"),
+      obtenerCuadrosPermitidos(supabase),
       supabase.from("catalogo_productos").select("id, nombre, unidad").eq("activo", true).order("nombre"),
       supabase.from("ciclos").select("id, clave, fecha_inicio, fecha_fin"),
     ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setCuadrosTodos(
-      (cua ?? []).map((c: any) => ({
+      cua.map((c) => ({
         id: c.id,
         label: c.nombre,
-        grupo: c.campos?.nombre ?? "Sin campo",
-        hectareas: Number(c.hectareas ?? 0),
+        grupo: c.campoNombre,
+        hectareas: c.hectareas,
       }))
     );
     setProductos(prod ?? []);

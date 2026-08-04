@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarPdfCenso, FilaCensoPdf } from "@/lib/pdf/censo";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 
 type Puesto = { id: string; nombre: string; categoria: string };
 type Opcion = { id: string; label: string; grupo?: string };
@@ -43,22 +44,18 @@ export default function CensoPage() {
   ]);
 
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: cua }, { data: pue }, { data: act }] = await Promise.all([
+    const [{ data: camp }, cua, { data: pue }, { data: act }] = await Promise.all([
       supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-      supabase
-        .from("cuadros")
-        .select("id, nombre, campos(nombre)")
-        .order("campo_id")
-        .order("nombre"),
+      obtenerCuadrosPermitidos(supabase),
       supabase.from("catalogo_puestos").select("id, nombre, categoria").eq("activo", true),
       supabase.from("actividades").select("id, nombre").eq("activo", true).order("nombre"),
     ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setCuadros(
-      (cua ?? []).map((c: any) => ({
+      cua.map((c) => ({
         id: c.id,
         label: c.nombre,
-        grupo: c.campos?.nombre ?? "Sin campo",
+        grupo: c.campoNombre,
       }))
     );
     setPuestos(pue ?? []);
