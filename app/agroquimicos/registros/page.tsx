@@ -84,6 +84,34 @@ export default function RegistrosAgroquimicosPage() {
     return grupos;
   }, [registros]);
 
+  async function eliminarFolioFoliar(aplicacionFoliarId: string) {
+    if (
+      !confirm(
+        "¿Eliminar esta aplicación foliar completa? Se revierte del inventario. No se puede deshacer."
+      )
+    )
+      return;
+    await supabase.from("movimientos_inventario_agroquimicos").delete().eq("origen_id", aplicacionFoliarId);
+    await supabase.from("aplicaciones").delete().eq("origen_id", aplicacionFoliarId);
+    const { error } = await supabase.from("aplicacion_foliar").delete().eq("id", aplicacionFoliarId);
+    if (error) setError(error.message);
+    else consultar();
+  }
+
+  async function eliminarSesionRiego(sesionId: string) {
+    if (
+      !confirm(
+        "¿Eliminar este riego completo? Si tenía fertirriego, también se revierte del inventario. No se puede deshacer."
+      )
+    )
+      return;
+    await supabase.from("movimientos_inventario_agroquimicos").delete().eq("origen_id", sesionId);
+    await supabase.from("aplicaciones").delete().eq("origen_id", sesionId);
+    const { error } = await supabase.from("riego_diario").delete().eq("sesion_id", sesionId);
+    if (error) setError(error.message);
+    else consultar();
+  }
+
   async function descargarPdfFolio(aplicacionFoliarId: string) {
     const { data, error } = await supabase
       .from("aplicacion_foliar")
@@ -129,7 +157,17 @@ export default function RegistrosAgroquimicosPage() {
     });
   }
 
-  function TablaTipo({ titulo, filas, conPdfPorFolio }: { titulo: string; filas: any[]; conPdfPorFolio?: boolean }) {
+  function TablaTipo({
+    titulo,
+    filas,
+    conPdfPorFolio,
+    onEliminar,
+  }: {
+    titulo: string;
+    filas: any[];
+    conPdfPorFolio?: boolean;
+    onEliminar?: (origenId: string) => void;
+  }) {
     const foliosVistos = new Set<string>();
     return (
       <div className="card mb-6 overflow-x-auto">
@@ -147,12 +185,12 @@ export default function RegistrosAgroquimicosPage() {
               <th className="px-4 py-2">Producto</th>
               <th className="px-4 py-2">Cantidad</th>
               <th className="px-4 py-2">Método</th>
-              {conPdfPorFolio && <th className="px-4 py-2"></th>}
+              {(conPdfPorFolio || onEliminar) && <th className="px-4 py-2"></th>}
             </tr>
           </thead>
           <tbody>
             {filas.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={conPdfPorFolio ? 7 : 6}>Sin registros.</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={7}>Sin registros.</td></tr>
             )}
             {filas.map((r) => {
               const yaVisto = r.origen_id && foliosVistos.has(r.origen_id);
@@ -165,12 +203,21 @@ export default function RegistrosAgroquimicosPage() {
                   <td className="px-4 py-2 text-campo-800">{r.catalogo_productos?.nombre}</td>
                   <td className="px-4 py-2 text-campo-800">{Number(r.cantidad).toFixed(2)} {r.unidad}</td>
                   <td className="px-4 py-2 text-campo-600">{r.metodo ?? "—"}</td>
-                  {conPdfPorFolio && (
-                    <td className="px-4 py-2 text-right">
+                  {(conPdfPorFolio || onEliminar) && (
+                    <td className="whitespace-nowrap px-4 py-2 text-right">
                       {!yaVisto && r.origen_id && (
-                        <button className="btn-secondary" onClick={() => descargarPdfFolio(r.origen_id)}>
-                          PDF
-                        </button>
+                        <>
+                          {conPdfPorFolio && (
+                            <button className="btn-secondary mr-2" onClick={() => descargarPdfFolio(r.origen_id)}>
+                              PDF
+                            </button>
+                          )}
+                          {onEliminar && (
+                            <button className="btn-danger" onClick={() => onEliminar(r.origen_id)}>
+                              Eliminar
+                            </button>
+                          )}
+                        </>
                       )}
                     </td>
                   )}
@@ -258,8 +305,8 @@ export default function RegistrosAgroquimicosPage() {
         </button>
       </div>
 
-      <TablaTipo titulo="Foliar" filas={gruposPorTipo.foliar} conPdfPorFolio />
-      <TablaTipo titulo="Vía riego" filas={gruposPorTipo.fertirriego} />
+      <TablaTipo titulo="Foliar" filas={gruposPorTipo.foliar} conPdfPorFolio onEliminar={eliminarFolioFoliar} />
+      <TablaTipo titulo="Vía riego" filas={gruposPorTipo.fertirriego} onEliminar={eliminarSesionRiego} />
     </div>
   );
 }
