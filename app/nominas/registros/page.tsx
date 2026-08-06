@@ -7,7 +7,7 @@ import { generarExcelCensos, FilaCensoResumen } from "@/lib/excel/censoResumen";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
 import { generarPdfRecibosNomina, ReciboEmpleado } from "@/lib/pdf/reciboNomina";
-import { fechasDePeriodo } from "@/lib/utils/periodo";
+import { fechasDePeriodo, diaAnclaPorTipo } from "@/lib/utils/periodo";
 
 type Opcion = { id: string; label: string };
 
