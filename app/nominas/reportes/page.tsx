@@ -24,6 +24,7 @@ export default function ReportesNominasPage() {
   const [cultivosOpciones, setCultivosOpciones] = useState<Opcion[]>([]);
   const [ciclos, setCiclos] = useState<{ id: string; clave: string; fecha_inicio: string; fecha_fin: string }[]>([]);
   const [hectareasPorCampo, setHectareasPorCampo] = useState<Record<string, number>>({});
+  const [hectareasPorCampoFisico, setHectareasPorCampoFisico] = useState<Record<string, number>>({});
   const [hectareasPorCampoCultivo, setHectareasPorCampoCultivo] = useState<Record<string, Record<string, number>>>({});
   const [ordenPorCuadro, setOrdenPorCuadro] = useState<Record<string, number>>({});
   const [registros, setRegistros] = useState<any[]>([]);
@@ -63,6 +64,7 @@ export default function ReportesNominasPage() {
           }
         }
         setHectareasPorCampo(totales);
+        setHectareasPorCampoFisico(totales);
         setOrdenPorCuadro(orden);
       });
 
@@ -124,6 +126,36 @@ export default function ReportesNominasPage() {
       setFechaFin(c.fecha_fin);
     }
   }
+
+  // Cuando eliges un ciclo especifico, las hectareas por campo (usadas
+  // en "Costo por campo" y para prorratear "General") pasan a ser las
+  // del Programa de ESE ciclo (no el total fisico del campo). Si un
+  // campo no tiene nada capturado en ese ciclo (ej. Santa Ines, que no
+  // tiene cultivo), se deja en 1 ha, tal como se pidio.
+  useEffect(() => {
+    if (!cicloId) {
+      setHectareasPorCampo(hectareasPorCampoFisico);
+      return;
+    }
+    supabase
+      .from("cuadro_ciclo")
+      .select("hectareas, cuadros(campos(nombre))")
+      .eq("ciclo_id", cicloId)
+      .then(({ data }) => {
+        const totales: Record<string, number> = {};
+        for (const r of (data ?? []) as any[]) {
+          const nombreCampo = r.cuadros?.campos?.nombre;
+          if (!nombreCampo) continue;
+          totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(r.hectareas ?? 0);
+        }
+        // Campos sin nada capturado en este ciclo -> 1 ha (placeholder)
+        for (const c of campos) {
+          if (!(c.label in totales)) totales[c.label] = 1;
+        }
+        setHectareasPorCampo(totales);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cicloId, hectareasPorCampoFisico, campos]);
 
   async function consultar() {
     setLoading(true);
