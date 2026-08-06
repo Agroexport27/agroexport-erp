@@ -62,7 +62,7 @@ export default function MovimientosAgroquimicosPage() {
       .from("movimientos_inventario_agroquimicos")
       .select("id, fecha, tipo, cantidad, folio, observaciones, origen_tipo, campos(nombre), catalogo_productos(nombre, unidad)")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(30);
     if (error) setError(error.message);
     else setMovimientosRecientes(data ?? []);
     setLoading(false);

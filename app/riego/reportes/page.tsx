@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { generarExcelReporteRiego } from "@/lib/excel/reporteRiego";
+import { generarPdfReporteRiego } from "@/lib/pdf/reporteRiego";
 
 type Opcion = { id: string; label: string };
 
@@ -136,6 +138,16 @@ export default function ReportesRiegoPage() {
   const maxHorasMes = Math.max(1, ...porMes.map((m) => m.horas));
   const maxHorasCuadro = Math.max(1, ...porCuadro.map((c) => c.horas));
 
+  const rango = `${fechaInicio}_a_${fechaFin}`;
+
+  function descargarExcel() {
+    generarExcelReporteRiego({ rango, porCuadro, porMes });
+  }
+
+  function descargarPdf() {
+    generarPdfReporteRiego({ rango, totalHoras, totalLamina, porCuadro, porMes });
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Reportes de riego</h1>
@@ -187,6 +199,12 @@ export default function ReportesRiegoPage() {
         </div>
         <button className="btn-primary" onClick={consultar} disabled={loading}>
           {loading ? "Consultando..." : "Consultar"}
+        </button>
+        <button className="btn-secondary" onClick={descargarExcel}>
+          Descargar Excel
+        </button>
+        <button className="btn-secondary" onClick={descargarPdf}>
+          Descargar PDF
         </button>
       </div>
 
