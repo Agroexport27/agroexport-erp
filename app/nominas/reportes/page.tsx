@@ -25,6 +25,7 @@ export default function ReportesNominasPage() {
   const [ciclos, setCiclos] = useState<{ id: string; clave: string; fecha_inicio: string; fecha_fin: string }[]>([]);
   const [hectareasPorCampo, setHectareasPorCampo] = useState<Record<string, number>>({});
   const [hectareasPorCampoFisico, setHectareasPorCampoFisico] = useState<Record<string, number>>({});
+  const [camposConProgramaReal, setCamposConProgramaReal] = useState<Set<string>>(new Set());
   const [hectareasPorCampoCultivo, setHectareasPorCampoCultivo] = useState<Record<string, Record<string, number>>>({});
   const [ordenPorCuadro, setOrdenPorCuadro] = useState<Record<string, number>>({});
   const [registros, setRegistros] = useState<any[]>([]);
@@ -129,30 +130,34 @@ export default function ReportesNominasPage() {
 
   // Cuando eliges un ciclo especifico, las hectareas por campo (usadas
   // en "Costo por campo" y para prorratear "General") pasan a ser las
-  // del Programa de ESE ciclo (no el total fisico del campo). Si un
-  // campo no tiene nada capturado en ese ciclo (ej. Santa Ines, que no
-  // tiene cultivo), se deja en 1 ha, tal como se pidio.
+  // del Programa de hortaliza de ESE ciclo (no el total fisico del
+  // campo, y sin contar Solarizado ni cultivos perennes como Naranja,
+  // que se llevan aparte). Si un campo no tiene nada de eso capturado
+  // en ese ciclo, se deja en 1 ha (relleno), tal como se pidio.
   useEffect(() => {
     if (!cicloId) {
       setHectareasPorCampo(hectareasPorCampoFisico);
+      setCamposConProgramaReal(new Set(Object.keys(hectareasPorCampoFisico)));
       return;
     }
     supabase
       .from("cuadro_ciclo")
-      .select("hectareas, cuadros(campos(nombre)), variedades(cultivos(nombre))")
+      .select("hectareas, cuadros(campos(nombre)), variedades(cultivos(nombre, perenne))")
       .eq("ciclo_id", cicloId)
       .then(({ data }) => {
         const totales: Record<string, number> = {};
         for (const r of (data ?? []) as any[]) {
           const nombreCampo = r.cuadros?.campos?.nombre;
-          const nombreCultivo = r.variedades?.cultivos?.nombre;
+          const cultivo = r.variedades?.cultivos;
           if (!nombreCampo) continue;
-          // El Solarizado no es un cultivo productivo todavia -- no
-          // cuenta como hectarea de hortaliza para estos calculos.
-          if (nombreCultivo === "Solarizado") continue;
+          // El Solarizado no es un cultivo productivo todavia, y los
+          // perennes (ej. Naranja) se manejan aparte -- ninguno cuenta
+          // como hectarea de hortaliza de este ciclo.
+          if (cultivo?.nombre === "Solarizado" || cultivo?.perenne) continue;
           totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(r.hectareas ?? 0);
         }
-        // Campos sin nada capturado en este ciclo -> 1 ha (placeholder)
+        setCamposConProgramaReal(new Set(Object.keys(totales)));
+        // Campos sin nada capturado en este ciclo -> 1 ha (relleno)
         for (const c of campos) {
           if (!(c.label in totales)) totales[c.label] = 1;
         }
@@ -343,10 +348,17 @@ export default function ReportesNominasPage() {
   const { porCampo, porCuadro, porActividad, porCuadroActividad, granTotal } = useMemo(() => {
     const nombreCampoFiltrado = campos.find((c) => c.id === campoId)?.label;
     // Hectareas a usar para "General": las del campo filtrado, o la suma
-    // de TODOS los campos si no filtraste ninguno (hasta tener Programa).
+    // de los campos que aparecen en lo que consultas Y que ademas
+    // tienen Programa de hortaliza real en este ciclo (no perennes, no
+    // relleno) — asi campos como vigilancia en un campo cerrado no
+    // inflan la cuenta.
+    const camposEnRegistros = new Set(registros.map((r) => r.campos?.nombre).filter(Boolean));
+    const camposRelevantes = Array.from(camposEnRegistros).filter(
+      (c) => camposConProgramaReal.size === 0 || camposConProgramaReal.has(c)
+    );
     const hectareasGeneral = nombreCampoFiltrado
       ? hectareasPorCampo[nombreCampoFiltrado] ?? null
-      : Object.values(hectareasPorCampo).reduce((s, h) => s + h, 0) || null;
+      : camposRelevantes.reduce((s, c) => s + (hectareasPorCampo[c] ?? 0), 0) || null;
 
     const campoMap = new Map<string, FilaResumen>();
     const cuadroMap = new Map<string, FilaResumen>();
@@ -409,7 +421,7 @@ export default function ReportesNominasPage() {
       granTotal,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registros, hectareasPorCampo, ordenPorCuadro, campos, campoId, cultivoId, hectareasPorCampoCultivo]);
+  }, [registros, hectareasPorCampo, ordenPorCuadro, campos, campoId, cultivoId, hectareasPorCampoCultivo, camposConProgramaReal]);
 
   const jerarquiaPlana: FilaJerarquia[] = useMemo(() => {
     const filas: FilaJerarquia[] = [];
@@ -613,7 +625,7 @@ export default function ReportesNominasPage() {
       <p className="mb-2 text-xs text-tierra-600">
         {campoId
           ? "\"Costo por actividad\" usa las hectáreas del campo filtrado."
-          : "\"Costo por actividad\" usa la suma de hectáreas de todos los campos (no filtraste ninguno)."}{" "}
+          : "\"Costo por actividad\" usa la suma de hectáreas de los campos que aparecen en lo que consultaste (no filtraste ninguno)."}{" "}
         Cuando tengamos el Programa real, se ajusta a los cuadros realmente activos.
       </p>
       <TablaResumen titulo="Costo por actividad" filas={porActividad} conHectareas />
