@@ -180,15 +180,17 @@ export default function ApuntadorPage() {
 
   async function cargarRegistros() {
     setLoadingRegistros(true);
-    const { semana, anio } = calcularPeriodo(fecha);
+    const eventual = calcularPeriodo(fecha, diaAnclaPorTipo("eventual"));
+    const plantaTemporal = calcularPeriodo(fecha, diaAnclaPorTipo("planta"));
     const { data, error } = await supabase
       .from("apuntador_diario")
       .select(
-        "id, fecha, periodo, periodo_anio, avance, tarifa, total, tipo_pago, empleado_id, cuadro_id, actividad_id, empleados(clave, nombre), cuadros(nombre, hectareas), actividades(nombre), campos(nombre)"
+        "id, fecha, periodo, periodo_anio, tipo_nomina, avance, tarifa, total, tipo_pago, empleado_id, cuadro_id, actividad_id, empleados(clave, nombre), cuadros(nombre, hectareas), actividades(nombre), campos(nombre)"
       )
-      .eq("periodo", semana)
-      .eq("periodo_anio", anio)
-      .eq("tipo_nomina", "eventual")
+      .or(
+        `and(periodo.eq.${eventual.semana},periodo_anio.eq.${eventual.anio},tipo_nomina.eq.eventual),` +
+          `and(periodo.eq.${plantaTemporal.semana},periodo_anio.eq.${plantaTemporal.anio},tipo_nomina.in.(planta,temporal))`
+      )
       .order("fecha", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) setError(error.message);
@@ -1161,7 +1163,7 @@ export default function ApuntadorPage() {
       </div>
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">
-        Registros del periodo Eventual actual (S{periodo.semana}-{periodo.anio}) — Planta y Temporal se ven en Nóminas → Registros
+        Registros del periodo actual — Eventual (S{periodo.semana}-{periodo.anio}), Planta/Temporal (semana miércoles-martes)
       </h2>
 
       {loadingRegistros && (
@@ -1203,6 +1205,7 @@ export default function ApuntadorPage() {
             <thead className="text-left text-xs font-medium text-campo-600">
               <tr>
                 <th className="px-4 py-2">Periodo</th>
+                <th className="px-4 py-2">Tipo</th>
                 <th className="px-4 py-2">Empleado</th>
                 <th className="px-4 py-2">Cuadro</th>
                 <th className="px-4 py-2">Actividad</th>
@@ -1216,6 +1219,9 @@ export default function ApuntadorPage() {
                   <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
                     <td className="px-4 py-1 text-campo-600">
                       {r.periodo ? `S${r.periodo}-${r.periodo_anio}` : "—"}
+                    </td>
+                    <td className="px-4 py-1 text-campo-600 capitalize">
+                      {r.tipo_nomina ?? "eventual"}
                     </td>
                     <td className="px-4 py-1">
                       <select
@@ -1298,6 +1304,9 @@ export default function ApuntadorPage() {
                   <tr key={r.id} className="border-t border-campo-50">
                     <td className="px-4 py-2 text-campo-800">
                       {r.periodo ? `S${r.periodo}-${r.periodo_anio}` : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-campo-800 capitalize">
+                      {r.tipo_nomina ?? "eventual"}
                     </td>
                     <td className="px-4 py-2 text-campo-800">
                       {r.empleados?.clave} — {r.empleados?.nombre}
