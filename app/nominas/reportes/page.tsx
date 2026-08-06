@@ -139,13 +139,17 @@ export default function ReportesNominasPage() {
     }
     supabase
       .from("cuadro_ciclo")
-      .select("hectareas, cuadros(campos(nombre))")
+      .select("hectareas, cuadros(campos(nombre)), variedades(cultivos(nombre))")
       .eq("ciclo_id", cicloId)
       .then(({ data }) => {
         const totales: Record<string, number> = {};
         for (const r of (data ?? []) as any[]) {
           const nombreCampo = r.cuadros?.campos?.nombre;
+          const nombreCultivo = r.variedades?.cultivos?.nombre;
           if (!nombreCampo) continue;
+          // El Solarizado no es un cultivo productivo todavia -- no
+          // cuenta como hectarea de hortaliza para estos calculos.
+          if (nombreCultivo === "Solarizado") continue;
           totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(r.hectareas ?? 0);
         }
         // Campos sin nada capturado en este ciclo -> 1 ha (placeholder)
@@ -697,8 +701,13 @@ export default function ReportesNominasPage() {
                 <details key={actividad.nombre} className="mb-1 rounded border border-campo-100">
                   <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-3 py-1.5">
                     <span className="text-sm text-campo-800">{actividad.nombre}</span>
-                    <span className="font-medium text-xs text-campo-600">
-                      ${actividad.total.toFixed(2)}
+                    <span className="flex gap-3 text-xs text-campo-600">
+                      <span className="font-medium">${actividad.total.toFixed(2)}</span>
+                      <span>
+                        {campo.hectareas && campo.hectareas > 0
+                          ? `$${(actividad.total / campo.hectareas).toFixed(2)}/ha`
+                          : "—"}
+                      </span>
                     </span>
                   </summary>
                   <table className="w-full text-sm">
