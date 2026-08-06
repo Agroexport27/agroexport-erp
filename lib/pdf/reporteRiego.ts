@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-export type FilaCuadroRiego = { campo: string; cuadro: string; riegos: number; horas: number; lamina: number };
+export type FilaCuadroRiego = { campo: string; nombre: string; riegos: number; horas: number; lamina: number };
 export type FilaMesRiego = { mes: string; horas: number };
 
 export function generarPdfReporteRiego({
@@ -52,7 +52,7 @@ export function generarPdfReporteRiego({
     head: [["Campo", "Cuadro", "No. riegos", "Horas", "Lámina (mm)", "Lámina prom/riego"]],
     body: porCuadro.map((c) => [
       c.campo,
-      c.cuadro,
+      c.nombre,
       String(c.riegos),
       `${c.horas.toFixed(1)} h`,
       c.lamina > 0 ? `${c.lamina.toFixed(1)} mm` : "—",
