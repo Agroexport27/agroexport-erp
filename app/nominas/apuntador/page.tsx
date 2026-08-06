@@ -53,6 +53,7 @@ export default function ApuntadorPage() {
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
   const [tarifaMasiva, setTarifaMasiva] = useState("");
   const [cultivoMasivo, setCultivoMasivo] = useState("");
+  const [tipoNominaMasivo, setTipoNominaMasivo] = useState("");
   const [horaEntradaMasiva, setHoraEntradaMasiva] = useState("");
   const [horaSalidaMasiva, setHoraSalidaMasiva] = useState("");
 
@@ -414,6 +415,7 @@ export default function ApuntadorPage() {
               horaEntrada: horaEntradaMasiva !== "" ? horaEntradaMasiva : s.horaEntrada,
               horaSalida: horaSalidaMasiva !== "" ? horaSalidaMasiva : s.horaSalida,
               cultivoId: cultivoMasivo !== "" ? cultivoMasivo : s.cultivoId,
+              tipoNomina: tipoNominaMasivo !== "" ? (tipoNominaMasivo as any) : s.tipoNomina,
             }
           : s
       )
@@ -699,6 +701,19 @@ export default function ApuntadorPage() {
               {cultivos.map((c) => (
                 <option key={c.id} value={c.id}>{c.label}</option>
               ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Tipo nómina</label>
+            <select
+              className="input w-32"
+              value={tipoNominaMasivo}
+              onChange={(e) => setTipoNominaMasivo(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              <option value="eventual">Eventual</option>
+              <option value="planta">Planta</option>
+              <option value="temporal">Temporal</option>
             </select>
           </div>
           <button className="btn-secondary" onClick={aplicarValoresMasivos}>

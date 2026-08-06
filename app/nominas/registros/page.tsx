@@ -282,7 +282,7 @@ function VistaApuntador({
 }) {
   const supabase = createClient();
   const [campoId, setCampoId] = useState("");
-  const [tipoNomina, setTipoNomina] = useState<"eventual" | "planta" | "temporal">("eventual");
+  const [tipoNomina, setTipoNomina] = useState<"" | "eventual" | "planta" | "temporal">("");
   const [periodoSemana, setPeriodoSemana] = useState("");
   const [periodoAnio, setPeriodoAnio] = useState("");
   const [registros, setRegistros] = useState<any[]>([]);
@@ -319,8 +319,9 @@ function VistaApuntador({
   const gruposPorCampoPeriodo = useMemo(() => {
     return registros.reduce<Record<string, any[]>>((acc, r) => {
       const campo = r.campos?.nombre ?? "Sin campo";
+      const tipo = r.tipo_nomina ?? "eventual";
       const periodo = r.periodo ? `Semana ${r.periodo} - ${r.periodo_anio}` : "Sin periodo";
-      const key = `${campo} — ${periodo}`;
+      const key = `${campo} — ${tipo} — ${periodo}`;
       acc[key] = acc[key] ?? [];
       acc[key].push(r);
       return acc;
@@ -418,6 +419,7 @@ function VistaApuntador({
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de nómina</label>
           <select className="input" value={tipoNomina} onChange={(e) => setTipoNomina(e.target.value as any)}>
+            <option value="">Todos</option>
             <option value="eventual">Eventual (semana sábado-viernes)</option>
             <option value="planta">Planta (semana miércoles-martes)</option>
             <option value="temporal">Temporal (semana miércoles-martes)</option>

@@ -50,27 +50,46 @@ export default function ReportesNominasPage() {
 
     supabase
       .from("cuadros")
-      .select("id, nombre, hectareas, cultivo_id, orden, campos(nombre)")
+      .select("id, nombre, hectareas, orden, campos(nombre)")
       .then(({ data }) => {
         const totales: Record<string, number> = {};
-        const porCampoCultivo: Record<string, Record<string, number>> = {};
         const orden: Record<string, number> = {};
         for (const c of (data ?? []) as any[]) {
           const nombreCampo = c.campos?.nombre;
           if (!nombreCampo) continue;
           totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(c.hectareas ?? 0);
-          if (c.cultivo_id) {
-            porCampoCultivo[nombreCampo] = porCampoCultivo[nombreCampo] ?? {};
-            porCampoCultivo[nombreCampo][c.cultivo_id] =
-              (porCampoCultivo[nombreCampo][c.cultivo_id] ?? 0) + Number(c.hectareas ?? 0);
-          }
           if (c.orden != null && orden[c.nombre] === undefined) {
             orden[c.nombre] = c.orden;
           }
         }
         setHectareasPorCampo(totales);
-        setHectareasPorCampoCultivo(porCampoCultivo);
         setOrdenPorCuadro(orden);
+      });
+
+    // Hectareas por cultivo, tomadas del Programa (cuadro_ciclo) de los
+    // ciclos activos — mas preciso que el "cultivo actual" del cuadro,
+    // porque respeta si solo una parte del cuadro esta sembrada.
+    supabase
+      .from("ciclos")
+      .select("id")
+      .in("clave", ["2026-2", "2027-1"])
+      .then(async ({ data: ciclosActivos }) => {
+        const idsCiclos = (ciclosActivos ?? []).map((c: any) => c.id);
+        if (idsCiclos.length === 0) return;
+        const { data } = await supabase
+          .from("cuadro_ciclo")
+          .select("hectareas, cuadros(campos(nombre)), variedades(cultivo_id)")
+          .in("ciclo_id", idsCiclos);
+        const porCampoCultivo: Record<string, Record<string, number>> = {};
+        for (const r of (data ?? []) as any[]) {
+          const nombreCampo = r.cuadros?.campos?.nombre;
+          const cultivoId = r.variedades?.cultivo_id;
+          if (!nombreCampo || !cultivoId) continue;
+          porCampoCultivo[nombreCampo] = porCampoCultivo[nombreCampo] ?? {};
+          porCampoCultivo[nombreCampo][cultivoId] =
+            (porCampoCultivo[nombreCampo][cultivoId] ?? 0) + Number(r.hectareas ?? 0);
+        }
+        setHectareasPorCampoCultivo(porCampoCultivo);
       });
 
     supabase
