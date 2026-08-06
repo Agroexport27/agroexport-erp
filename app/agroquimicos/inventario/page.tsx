@@ -31,14 +31,18 @@ export default function InventarioAgroquimicosPage() {
 
   const filasVisibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    return filas.filter((f: any) => {
-      if (soloConStock && Number(f.stock_actual) === 0) return false;
-      if (!q) return true;
-      return (
-        f.catalogo_productos?.nombre?.toLowerCase().includes(q) ||
-        f.campos?.nombre?.toLowerCase().includes(q)
+    return filas
+      .filter((f: any) => {
+        if (soloConStock && Number(f.stock_actual) === 0) return false;
+        if (!q) return true;
+        return (
+          f.catalogo_productos?.nombre?.toLowerCase().includes(q) ||
+          f.campos?.nombre?.toLowerCase().includes(q)
+        );
+      })
+      .sort((a: any, b: any) =>
+        (a.catalogo_productos?.nombre ?? "").localeCompare(b.catalogo_productos?.nombre ?? "")
       );
-    });
   }, [filas, busqueda, soloConStock]);
 
   const porCampo = useMemo(() => {
