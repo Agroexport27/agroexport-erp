@@ -18,6 +18,8 @@ type LineaProducto = {
   dosisHa: string;
   dosisTanque: string;
   totalUsado: string;
+  dosisTanqueManual: boolean;
+  totalUsadoManual: boolean;
 };
 
 function uid() {
@@ -54,6 +56,7 @@ export default function AplicacionesFoliaresPage() {
   const [ltsPorTanque, setLtsPorTanque] = useState("");
   const [hasPorTanque, setHasPorTanque] = useState("");
   const [noCargas, setNoCargas] = useState("");
+  const [noCargasManual, setNoCargasManual] = useState(false);
   const [seCalibro, setSeCalibro] = useState(true);
   const [horaInicio, setHoraInicio] = useState("");
   const [horaTermino, setHoraTermino] = useState("");
@@ -68,6 +71,8 @@ export default function AplicacionesFoliaresPage() {
       dosisHa: "",
       dosisTanque: "",
       totalUsado: "",
+      dosisTanqueManual: false,
+      totalUsadoManual: false,
     },
   ]);
 
@@ -134,6 +139,38 @@ export default function AplicacionesFoliaresPage() {
     }, 0);
   }, [cuadroIds, cuadrosTodos]);
 
+  // No. de cargas = superficie / rendimiento por carga (has/tanque),
+  // redondeado hacia arriba. Se recalcula solo si no lo tocaste a mano.
+  useEffect(() => {
+    if (noCargasManual) return;
+    const rendimiento = parseFloat(hasPorTanque);
+    if (superficieTotal > 0 && rendimiento > 0) {
+      setNoCargas(String(Math.ceil(superficieTotal / rendimiento)));
+    }
+  }, [superficieTotal, hasPorTanque, noCargasManual]);
+
+  // Dosis/tanque y Total usado de cada producto, recalculados cuando
+  // cambian has/tanque o no. de cargas (a menos que edites el campo a mano).
+  useEffect(() => {
+    setLineas((prev) =>
+      prev.map((l) => {
+        let siguiente = { ...l };
+        const dosisHa = parseFloat(l.dosisHa);
+        const rendimiento = parseFloat(hasPorTanque);
+        if (!l.dosisTanqueManual && dosisHa > 0 && rendimiento > 0) {
+          siguiente.dosisTanque = (dosisHa * rendimiento).toFixed(2);
+        }
+        const dosisTanque = parseFloat(siguiente.dosisTanque);
+        const cargas = parseFloat(noCargas);
+        if (!l.totalUsadoManual && dosisTanque > 0 && cargas > 0) {
+          siguiente.totalUsado = (dosisTanque * cargas).toFixed(2);
+        }
+        return siguiente;
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPorTanque, noCargas]);
+
   function agregarLinea() {
     setLineas((l) => [
       ...l,
@@ -144,6 +181,8 @@ export default function AplicacionesFoliaresPage() {
         dosisHa: "",
         dosisTanque: "",
         totalUsado: "",
+        dosisTanqueManual: false,
+        totalUsadoManual: false,
       },
     ]);
   }
@@ -318,6 +357,7 @@ export default function AplicacionesFoliaresPage() {
     // Reset
     setFolio("");
     setCuadroIds([]);
+    setNoCargasManual(false);
     setLineas([
       {
         key: uid(),
@@ -326,10 +366,29 @@ export default function AplicacionesFoliaresPage() {
         dosisHa: "",
         dosisTanque: "",
         totalUsado: "",
+        dosisTanqueManual: false,
+        totalUsadoManual: false,
       },
     ]);
     cargarRecientes();
     setTimeout(() => setMensajeExito(null), 5000);
+  }
+
+  async function eliminarAplicacion(id: string) {
+    if (
+      !confirm(
+        "¿Eliminar esta aplicación foliar completa? Se revierte del inventario. No se puede deshacer."
+      )
+    )
+      return;
+    await supabase.from("movimientos_inventario_agroquimicos").delete().eq("origen_id", id);
+    await supabase.from("aplicaciones").delete().eq("origen_id", id);
+    const { error } = await supabase.from("aplicacion_foliar").delete().eq("id", id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    cargarRecientes();
   }
 
   async function descargarPdfExistente(id: string) {
@@ -485,8 +544,27 @@ export default function AplicacionesFoliaresPage() {
           <input type="number" step="any" className="input" value={hasPorTanque} onChange={(e) => setHasPorTanque(e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">No. cargas</label>
-          <input type="number" className="input" value={noCargas} onChange={(e) => setNoCargas(e.target.value)} />
+          <label className="mb-1 block text-xs font-medium text-campo-600">
+            No. cargas {!noCargasManual && noCargas && <span className="text-campo-400">(auto)</span>}
+          </label>
+          <input
+            type="number"
+            className="input"
+            value={noCargas}
+            onChange={(e) => {
+              setNoCargas(e.target.value);
+              setNoCargasManual(true);
+            }}
+          />
+          {noCargasManual && (
+            <button
+              type="button"
+              className="mt-1 text-[11px] text-campo-500 underline"
+              onClick={() => setNoCargasManual(false)}
+            >
+              Volver a calcular automático
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2 pt-4">
           <input type="checkbox" checked={seCalibro} onChange={(e) => setSeCalibro(e.target.checked)} />
@@ -535,13 +613,52 @@ export default function AplicacionesFoliaresPage() {
                   />
                 </td>
                 <td className="px-3 py-1">
-                  <input type="number" step="any" className="input w-24" value={l.dosisHa} onChange={(e) => actualizarLinea(l.key, { dosisHa: e.target.value })} />
+                  <input
+                    type="number"
+                    step="any"
+                    className="input w-24"
+                    value={l.dosisHa}
+                    onChange={(e) => {
+                      const dosisHa = e.target.value;
+                      const rendimiento = parseFloat(hasPorTanque);
+                      const cambios: Partial<LineaProducto> = { dosisHa };
+                      if (!l.dosisTanqueManual && parseFloat(dosisHa) > 0 && rendimiento > 0) {
+                        const dosisTanque = (parseFloat(dosisHa) * rendimiento).toFixed(2);
+                        cambios.dosisTanque = dosisTanque;
+                        const cargas = parseFloat(noCargas);
+                        if (!l.totalUsadoManual && cargas > 0) {
+                          cambios.totalUsado = (parseFloat(dosisTanque) * cargas).toFixed(2);
+                        }
+                      }
+                      actualizarLinea(l.key, cambios);
+                    }}
+                  />
                 </td>
                 <td className="px-3 py-1">
-                  <input type="number" step="any" className="input w-24" value={l.dosisTanque} onChange={(e) => actualizarLinea(l.key, { dosisTanque: e.target.value })} />
+                  <input
+                    type="number"
+                    step="any"
+                    className="input w-24"
+                    value={l.dosisTanque}
+                    onChange={(e) => {
+                      const dosisTanque = e.target.value;
+                      const cambios: Partial<LineaProducto> = { dosisTanque, dosisTanqueManual: true };
+                      const cargas = parseFloat(noCargas);
+                      if (!l.totalUsadoManual && parseFloat(dosisTanque) > 0 && cargas > 0) {
+                        cambios.totalUsado = (parseFloat(dosisTanque) * cargas).toFixed(2);
+                      }
+                      actualizarLinea(l.key, cambios);
+                    }}
+                  />
                 </td>
                 <td className="px-3 py-1">
-                  <input type="number" step="any" className="input w-28" value={l.totalUsado} onChange={(e) => actualizarLinea(l.key, { totalUsado: e.target.value })} />
+                  <input
+                    type="number"
+                    step="any"
+                    className="input w-28"
+                    value={l.totalUsado}
+                    onChange={(e) => actualizarLinea(l.key, { totalUsado: e.target.value, totalUsadoManual: true })}
+                  />
                 </td>
                 <td className="px-3 py-1">
                   <button className="text-red-500 hover:text-red-700" onClick={() => quitarLinea(l.key)}>×</button>
@@ -591,8 +708,11 @@ export default function AplicacionesFoliaresPage() {
                     .join(", ")}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button className="btn-secondary" onClick={() => descargarPdfExistente(r.id)}>
+                  <button className="btn-secondary mr-2" onClick={() => descargarPdfExistente(r.id)}>
                     Descargar PDF
+                  </button>
+                  <button className="btn-danger" onClick={() => eliminarAplicacion(r.id)}>
+                    Eliminar
                   </button>
                 </td>
               </tr>

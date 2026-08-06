@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarPdfRegistrosAgroquimicos } from "@/lib/pdf/registrosAgroquimicos";
+import { generarPdfAplicacionFoliar } from "@/lib/pdf/aplicacionFoliar";
 
 type Opcion = { id: string; label: string };
 
@@ -52,7 +53,7 @@ export default function RegistrosAgroquimicosPage() {
     let query = supabase
       .from("aplicaciones")
       .select(
-        "id, fecha, cantidad, unidad, tipo, metodo, catalogo_productos(nombre), cuadros(nombre, campo_id, campos(nombre))"
+        "id, fecha, cantidad, unidad, tipo, metodo, origen_id, catalogo_productos(nombre), cuadros(nombre, campo_id, campos(nombre))"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin)
@@ -83,7 +84,53 @@ export default function RegistrosAgroquimicosPage() {
     return grupos;
   }, [registros]);
 
-  function TablaTipo({ titulo, filas }: { titulo: string; filas: any[] }) {
+  async function descargarPdfFolio(aplicacionFoliarId: string) {
+    const { data, error } = await supabase
+      .from("aplicacion_foliar")
+      .select(
+        "folio, campos(nombre), cultivos(nombre), variedades(nombre), superficie_has, fecha_aplicacion, triple_lavado, operador, no_tractor, no_aspersora, lts_por_tanque, has_por_tanque, no_cargas, se_calibro_equipo, hora_inicio, hora_termino, gerente_campo, encargado_aplicaciones, aplicacion_foliar_cuadro(cuadros(nombre)), aplicacion_foliar_producto(dosis_ha, dosis_tanque, total_utilizado, catalogo_productos(nombre, unidad))"
+      )
+      .eq("id", aplicacionFoliarId)
+      .single();
+
+    if (error || !data) {
+      setError(error?.message ?? "No se pudo cargar la aplicación.");
+      return;
+    }
+    const d = data as any;
+
+    generarPdfAplicacionFoliar({
+      folio: d.folio ?? "",
+      campo: d.campos?.nombre ?? "",
+      cultivo: d.cultivos?.nombre ?? "",
+      variedad: d.variedades?.nombre ?? "",
+      cuadros: (d.aplicacion_foliar_cuadro ?? []).map((x: any) => x.cuadros?.nombre).join(", "),
+      superficieHas: Number(d.superficie_has ?? 0),
+      fechaAplicacion: d.fecha_aplicacion,
+      tripleLavado: !!d.triple_lavado,
+      operador: d.operador ?? "",
+      noTractor: d.no_tractor ?? "",
+      noAspersora: d.no_aspersora ?? "",
+      ltsPorTanque: d.lts_por_tanque ? String(d.lts_por_tanque) : "",
+      hasPorTanque: d.has_por_tanque ? String(d.has_por_tanque) : "",
+      noCargas: d.no_cargas ? String(d.no_cargas) : "",
+      seCalibroEquipo: !!d.se_calibro_equipo,
+      horaInicio: d.hora_inicio ?? "",
+      horaTermino: d.hora_termino ?? "",
+      gerenteCampo: d.gerente_campo ?? "",
+      encargadoAplicaciones: d.encargado_aplicaciones ?? "",
+      productos: (d.aplicacion_foliar_producto ?? []).map((p: any) => ({
+        producto: p.catalogo_productos?.nombre ?? "",
+        dosisHa: p.dosis_ha,
+        dosisTanque: p.dosis_tanque,
+        totalUsado: Number(p.total_utilizado),
+        unidad: p.catalogo_productos?.unidad ?? "",
+      })),
+    });
+  }
+
+  function TablaTipo({ titulo, filas, conPdfPorFolio }: { titulo: string; filas: any[]; conPdfPorFolio?: boolean }) {
+    const foliosVistos = new Set<string>();
     return (
       <div className="card mb-6 overflow-x-auto">
         <div className="bg-campo-50 px-4 py-2">
@@ -100,22 +147,36 @@ export default function RegistrosAgroquimicosPage() {
               <th className="px-4 py-2">Producto</th>
               <th className="px-4 py-2">Cantidad</th>
               <th className="px-4 py-2">Método</th>
+              {conPdfPorFolio && <th className="px-4 py-2"></th>}
             </tr>
           </thead>
           <tbody>
             {filas.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={6}>Sin registros.</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={conPdfPorFolio ? 7 : 6}>Sin registros.</td></tr>
             )}
-            {filas.map((r) => (
-              <tr key={r.id} className="border-t border-campo-50">
-                <td className="px-4 py-2 text-campo-800">{r.fecha}</td>
-                <td className="px-4 py-2 text-campo-800">{r.cuadros?.campos?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.cuadros?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.catalogo_productos?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{Number(r.cantidad).toFixed(2)} {r.unidad}</td>
-                <td className="px-4 py-2 text-campo-600">{r.metodo ?? "—"}</td>
-              </tr>
-            ))}
+            {filas.map((r) => {
+              const yaVisto = r.origen_id && foliosVistos.has(r.origen_id);
+              if (r.origen_id) foliosVistos.add(r.origen_id);
+              return (
+                <tr key={r.id} className="border-t border-campo-50">
+                  <td className="px-4 py-2 text-campo-800">{r.fecha}</td>
+                  <td className="px-4 py-2 text-campo-800">{r.cuadros?.campos?.nombre}</td>
+                  <td className="px-4 py-2 text-campo-800">{r.cuadros?.nombre}</td>
+                  <td className="px-4 py-2 text-campo-800">{r.catalogo_productos?.nombre}</td>
+                  <td className="px-4 py-2 text-campo-800">{Number(r.cantidad).toFixed(2)} {r.unidad}</td>
+                  <td className="px-4 py-2 text-campo-600">{r.metodo ?? "—"}</td>
+                  {conPdfPorFolio && (
+                    <td className="px-4 py-2 text-right">
+                      {!yaVisto && r.origen_id && (
+                        <button className="btn-secondary" onClick={() => descargarPdfFolio(r.origen_id)}>
+                          PDF
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -197,7 +258,7 @@ export default function RegistrosAgroquimicosPage() {
         </button>
       </div>
 
-      <TablaTipo titulo="Foliar" filas={gruposPorTipo.foliar} />
+      <TablaTipo titulo="Foliar" filas={gruposPorTipo.foliar} conPdfPorFolio />
       <TablaTipo titulo="Vía riego" filas={gruposPorTipo.fertirriego} />
     </div>
   );

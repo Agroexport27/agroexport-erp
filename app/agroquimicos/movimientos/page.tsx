@@ -46,11 +46,21 @@ export default function MovimientosAgroquimicosPage() {
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
   }
 
+  async function eliminarMovimiento(id: string) {
+    if (!confirm("¿Eliminar este movimiento? Se revierte del inventario. No se puede deshacer.")) return;
+    const { error } = await supabase.from("movimientos_inventario_agroquimicos").delete().eq("id", id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    cargarMovimientosRecientes();
+  }
+
   async function cargarMovimientosRecientes() {
     setLoading(true);
     const { data, error } = await supabase
       .from("movimientos_inventario_agroquimicos")
-      .select("id, fecha, tipo, cantidad, folio, observaciones, campos(nombre), catalogo_productos(nombre, unidad)")
+      .select("id, fecha, tipo, cantidad, folio, observaciones, origen_tipo, campos(nombre), catalogo_productos(nombre, unidad)")
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) setError(error.message);
@@ -252,14 +262,15 @@ export default function MovimientosAgroquimicosPage() {
               <th className="px-4 py-2">Tipo</th>
               <th className="px-4 py-2">Cantidad</th>
               <th className="px-4 py-2">Observaciones</th>
+              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={6}>Cargando...</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={7}>Cargando...</td></tr>
             )}
             {!loading && movimientosRecientes.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={6}>Todavía no hay movimientos.</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={7}>Todavía no hay movimientos.</td></tr>
             )}
             {movimientosRecientes.map((m: any) => (
               <tr key={m.id} className="border-t border-campo-50">
@@ -275,6 +286,15 @@ export default function MovimientosAgroquimicosPage() {
                   {m.cantidad} {m.catalogo_productos?.unidad}
                 </td>
                 <td className="px-4 py-2 text-campo-600">{m.observaciones ?? "—"}</td>
+                <td className="px-4 py-2 text-right">
+                  {(!m.origen_tipo || m.origen_tipo === "ajuste_manual") ? (
+                    <button className="btn-danger" onClick={() => eliminarMovimiento(m.id)}>
+                      Eliminar
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-campo-400">Viene de una aplicación</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
