@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { calcularPeriodo } from "@/lib/utils/periodo";
+import { calcularPeriodo, diaAnclaPorTipo } from "@/lib/utils/periodo";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
 import BuscadorEmpleado from "@/components/BuscadorEmpleado";
 import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 
-type Empleado = { id: string; clave: string; nombre: string };
+type Empleado = { id: string; clave: string; nombre: string; tipo_nomina?: string | null };
 type Opcion = { id: string; label: string };
 
 type Slot = {
@@ -21,6 +21,7 @@ type Slot = {
   cultivoId: string;
   empleadoTexto: string;
   empleadoId: string | null;
+  tipoNomina: "eventual" | "planta" | "temporal";
   tipoPago: "jornal" | "destajo";
   avance: string;
   tarifa: string;
@@ -148,7 +149,7 @@ export default function ApuntadorPage() {
     const emp = await fetchTodasLasFilas((desde, hasta) =>
       supabase
         .from("empleados")
-        .select("id, clave, nombre")
+        .select("id, clave, nombre, tipo_nomina")
         .eq("activo", true)
         .order("clave")
         .range(desde, hasta)
@@ -186,6 +187,7 @@ export default function ApuntadorPage() {
       )
       .eq("periodo", semana)
       .eq("periodo_anio", anio)
+      .eq("tipo_nomina", "eventual")
       .order("fecha", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) setError(error.message);
@@ -297,6 +299,7 @@ export default function ApuntadorPage() {
           cultivoId: cuadroUnico ? cultivoPorCuadro[cuadroUnico] ?? "GENERAL" : "GENERAL",
           empleadoTexto: "",
           empleadoId: null,
+          tipoNomina: "eventual",
           tipoPago: "jornal",
           avance: "",
           tarifa: "",
@@ -430,6 +433,7 @@ export default function ApuntadorPage() {
         cultivoId: "GENERAL",
         empleadoTexto: "",
         empleadoId: null,
+        tipoNomina: "eventual",
         tipoPago: "jornal",
         avance: "",
         tarifa: "",
@@ -469,28 +473,42 @@ export default function ApuntadorPage() {
     setGuardando(true);
     setError(null);
 
-    const filas = validos.map((s) => ({
-      fecha,
-      empleado_id: s.empleadoId,
-      cuadro_id: s.cuadroId,
-      campo_id: campoId,
-      actividad_id: s.actividadId,
-      cultivo_id: s.cultivoId === "GENERAL" ? null : s.cultivoId,
-      tipo_pago: s.tipoPago,
-      dias: s.tipoPago === "jornal" ? 1 : null,
-      avance: s.tipoPago === "destajo" ? parseFloat(s.avance || "0") : null,
-      tarifa: parseFloat(s.tarifa),
-      periodo: periodo.semana,
-      periodo_anio: periodo.anio,
-      hora_entrada: s.horaEntrada || null,
-      hora_salida: s.horaSalida || null,
-    }));
+    const filas = validos.map((s) => {
+      const p = calcularPeriodo(fecha, diaAnclaPorTipo(s.tipoNomina));
+      return {
+        fecha,
+        empleado_id: s.empleadoId,
+        cuadro_id: s.cuadroId,
+        campo_id: campoId,
+        actividad_id: s.actividadId,
+        cultivo_id: s.cultivoId === "GENERAL" ? null : s.cultivoId,
+        tipo_nomina: s.tipoNomina,
+        tipo_pago: s.tipoPago,
+        dias: s.tipoPago === "jornal" ? 1 : null,
+        avance: s.tipoPago === "destajo" ? parseFloat(s.avance || "0") : null,
+        tarifa: parseFloat(s.tarifa),
+        periodo: p.semana,
+        periodo_anio: p.anio,
+        hora_entrada: s.horaEntrada || null,
+        hora_salida: s.horaSalida || null,
+      };
+    });
 
     const { error } = await supabase.from("apuntador_diario").insert(filas);
     setGuardando(false);
     if (error) {
       setError(error.message);
       return;
+    }
+
+    // Deja "fijo" el tipo de nomina del trabajador para la proxima vez,
+    // si lo cambiaste aqui (ej. lo pasaste a Planta).
+    for (const s of validos) {
+      const emp = empleados.find((e) => e.id === s.empleadoId);
+      if (emp && emp.tipo_nomina !== s.tipoNomina) {
+        await supabase.from("empleados").update({ tipo_nomina: s.tipoNomina }).eq("id", s.empleadoId);
+        emp.tipo_nomina = s.tipoNomina;
+      }
     }
 
     const incompletos = slots.length - validos.length;
@@ -708,6 +726,7 @@ export default function ApuntadorPage() {
                 <th className="px-2 py-2">Cuadro</th>
                 <th className="px-2 py-2">Cultivo</th>
                 <th className="px-2 py-2">Trabajador</th>
+                <th className="px-2 py-2">Tipo nómina</th>
                 <th className="px-2 py-2">Tipo</th>
                 <th className="px-2 py-2">Avance</th>
                 <th className="px-2 py-2">Tarifa</th>
@@ -798,13 +817,31 @@ export default function ApuntadorPage() {
                     <BuscadorEmpleado
                       empleados={empleados}
                       valorTexto={s.empleadoTexto}
-                      onSeleccionar={(empleadoId, texto) =>
-                        actualizarSlot(s.key, { empleadoTexto: texto, empleadoId })
-                      }
+                      onSeleccionar={(empleadoId, texto) => {
+                        const emp = empleados.find((e) => e.id === empleadoId);
+                        actualizarSlot(s.key, {
+                          empleadoTexto: texto,
+                          empleadoId,
+                          tipoNomina: (emp?.tipo_nomina as any) ?? s.tipoNomina,
+                        });
+                      }}
                     />
                     {s.empleadoTexto && !s.empleadoId && (
                       <p className="text-[10px] text-red-500">Sin seleccionar de la lista</p>
                     )}
+                  </td>
+                  <td className="px-2 py-1">
+                    <select
+                      className="input"
+                      value={s.tipoNomina}
+                      onChange={(e) =>
+                        actualizarSlot(s.key, { tipoNomina: e.target.value as any })
+                      }
+                    >
+                      <option value="eventual">Eventual</option>
+                      <option value="planta">Planta</option>
+                      <option value="temporal">Temporal</option>
+                    </select>
                   </td>
                   <td className="px-2 py-1">
                     <select
@@ -996,13 +1033,33 @@ export default function ApuntadorPage() {
                   <BuscadorEmpleado
                     empleados={empleados}
                     valorTexto={s.empleadoTexto}
-                    onSeleccionar={(empleadoId, texto) =>
-                      actualizarSlot(s.key, { empleadoTexto: texto, empleadoId })
-                    }
+                    onSeleccionar={(empleadoId, texto) => {
+                      const emp = empleados.find((e) => e.id === empleadoId);
+                      actualizarSlot(s.key, {
+                        empleadoTexto: texto,
+                        empleadoId,
+                        tipoNomina: (emp?.tipo_nomina as any) ?? s.tipoNomina,
+                      });
+                    }}
                   />
                   {s.empleadoTexto && !s.empleadoId && (
                     <p className="text-[10px] text-red-500">Sin seleccionar de la lista</p>
                   )}
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Tipo nómina
+                  </label>
+                  <select
+                    className="input"
+                    value={s.tipoNomina}
+                    onChange={(e) => actualizarSlot(s.key, { tipoNomina: e.target.value as any })}
+                  >
+                    <option value="eventual">Eventual</option>
+                    <option value="planta">Planta</option>
+                    <option value="temporal">Temporal</option>
+                  </select>
                 </div>
 
                 <div>
@@ -1089,7 +1146,7 @@ export default function ApuntadorPage() {
       </div>
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">
-        Registros del periodo actual (S{periodo.semana}-{periodo.anio})
+        Registros del periodo Eventual actual (S{periodo.semana}-{periodo.anio}) — Planta y Temporal se ven en Nóminas → Registros
       </h2>
 
       {loadingRegistros && (

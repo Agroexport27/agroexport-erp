@@ -33,6 +33,7 @@ export default function ReportesNominasPage() {
   const [fechaInicio, setFechaInicio] = useState(inicioDeSemanaActual());
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
+  const [tipoNomina, setTipoNomina] = useState<"" | "eventual" | "planta" | "temporal">("");
   const [actividadId, setActividadId] = useState("");
   const [cultivoId, setCultivoId] = useState("");
   const [periodoSemana, setPeriodoSemana] = useState("");
@@ -111,12 +112,13 @@ export default function ReportesNominasPage() {
     let query = supabase
       .from("apuntador_diario")
       .select(
-        "id, fecha, total, periodo, periodo_anio, cultivo_id, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
+        "id, fecha, total, periodo, periodo_anio, tipo_nomina, cultivo_id, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin);
 
     if (campoId) query = query.eq("campo_id", campoId);
+    if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
     if (actividadId) query = query.eq("actividad_id", actividadId);
     if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
     if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
@@ -466,7 +468,7 @@ export default function ReportesNominasPage() {
         </div>
       )}
 
-      <div className="card mb-6 grid grid-cols-4 items-end gap-3 p-4">
+      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">
             Ciclo (opcional, llena fechas)
@@ -493,6 +495,15 @@ export default function ReportesNominasPage() {
             {campos.map((c) => (
               <option key={c.id} value={c.id}>{c.label}</option>
             ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de nómina</label>
+          <select className="input" value={tipoNomina} onChange={(e) => setTipoNomina(e.target.value as any)}>
+            <option value="">Todos (mezclados)</option>
+            <option value="eventual">Eventual (sábado-viernes)</option>
+            <option value="planta">Planta (miércoles-martes)</option>
+            <option value="temporal">Temporal (miércoles-martes)</option>
           </select>
         </div>
         <div>

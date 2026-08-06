@@ -282,6 +282,7 @@ function VistaApuntador({
 }) {
   const supabase = createClient();
   const [campoId, setCampoId] = useState("");
+  const [tipoNomina, setTipoNomina] = useState<"eventual" | "planta" | "temporal">("eventual");
   const [periodoSemana, setPeriodoSemana] = useState("");
   const [periodoAnio, setPeriodoAnio] = useState("");
   const [registros, setRegistros] = useState<any[]>([]);
@@ -293,13 +294,14 @@ function VistaApuntador({
     let query = supabase
       .from("apuntador_diario")
       .select(
-        "id, fecha, periodo, periodo_anio, tipo_pago, avance, tarifa, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
+        "id, fecha, periodo, periodo_anio, tipo_nomina, tipo_pago, avance, tarifa, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
       )
       .order("periodo_anio", { ascending: false })
       .order("periodo", { ascending: false })
       .order("fecha", { ascending: false });
 
     if (campoId) query = query.eq("campo_id", campoId);
+    if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
     if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
     if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
 
@@ -312,7 +314,7 @@ function VistaApuntador({
   useEffect(() => {
     consultar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tipoNomina]);
 
   const gruposPorCampoPeriodo = useMemo(() => {
     return registros.reduce<Record<string, any[]>>((acc, r) => {
@@ -384,8 +386,9 @@ function VistaApuntador({
     const campoNombre = filas[0]?.campos?.nombre ?? "";
     const semana = filas[0]?.periodo;
     const anio = filas[0]?.periodo_anio;
-    const dias = semana && anio ? fechasDePeriodo(semana, anio) : [];
-    generarPdfRecibosNomina({ campoNombre, periodoLabel: nombreGrupo, dias, recibos });
+    const tipoDelGrupo = filas[0]?.tipo_nomina ?? "eventual";
+    const dias = semana && anio ? fechasDePeriodo(semana, anio, diaAnclaPorTipo(tipoDelGrupo)) : [];
+    generarPdfRecibosNomina({ campoNombre, periodoLabel: `${nombreGrupo} (${tipoDelGrupo})`, dias, recibos });
   }
 
   async function eliminarRegistro(id: string) {
@@ -411,7 +414,15 @@ function VistaApuntador({
 
   return (
     <div>
-      <div className="card mb-6 grid grid-cols-4 items-end gap-3 p-4">
+      <div className="card mb-6 grid grid-cols-5 items-end gap-3 p-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de nómina</label>
+          <select className="input" value={tipoNomina} onChange={(e) => setTipoNomina(e.target.value as any)}>
+            <option value="eventual">Eventual (semana sábado-viernes)</option>
+            <option value="planta">Planta (semana miércoles-martes)</option>
+            <option value="temporal">Temporal (semana miércoles-martes)</option>
+          </select>
+        </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Campo</label>
           <select className="input" value={campoId} onChange={(e) => setCampoId(e.target.value)}>

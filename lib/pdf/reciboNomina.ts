@@ -79,6 +79,12 @@ export function generarPdfRecibosNomina({
       doc.text(`Lista de nomina semanal — Campo: ${campoNombre} — Periodo: ${periodoLabel}`, 14, 18);
 
       const ancho = doc.internal.pageSize.getWidth();
+
+      // Nota de horarios, en la esquina superior derecha de cada hoja
+      doc.setFontSize(7);
+      doc.text("Hora de descanso 9:00-9:15 a.m y 3:00-3:15 p.m", ancho - 14, 10, { align: "right" });
+      doc.text("Horario de comida 12:00-1:00 p.m", ancho - 14, 15, { align: "right" });
+
       const alto = doc.internal.pageSize.getHeight();
       const y = alto - 12;
       doc.setFontSize(9);
