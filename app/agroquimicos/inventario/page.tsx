@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { generarExcelInventario } from "@/lib/excel/inventario";
+import { generarPdfInventario } from "@/lib/pdf/inventario";
 
 export default function InventarioAgroquimicosPage() {
   const supabase = createClient();
@@ -49,6 +51,24 @@ export default function InventarioAgroquimicosPage() {
     return Array.from(mapa.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [filasVisibles]);
 
+  function filasParaExport() {
+    return filasVisibles.map((f: any) => ({
+      campo: f.campos?.nombre ?? "Sin campo",
+      producto: f.catalogo_productos?.nombre ?? "",
+      categoria: f.catalogo_productos?.categoria ?? "",
+      stock: Number(f.stock_actual),
+      unidad: f.catalogo_productos?.unidad ?? "",
+    }));
+  }
+
+  function descargarExcel() {
+    generarExcelInventario(filasParaExport());
+  }
+
+  function descargarPdf() {
+    generarPdfInventario(filasParaExport());
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">
@@ -65,21 +85,29 @@ export default function InventarioAgroquimicosPage() {
         </div>
       )}
 
-      <div className="card mb-4 flex items-center justify-between gap-3 p-4">
+      <div className="card mb-4 flex flex-wrap items-center justify-between gap-3 p-4">
         <input
           className="input max-w-xs"
           placeholder="Buscar producto o campo..."
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
         />
-        <label className="flex items-center gap-2 text-sm text-campo-600">
-          <input
-            type="checkbox"
-            checked={soloConStock}
-            onChange={(e) => setSoloConStock(e.target.checked)}
-          />
-          Solo con existencia
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-campo-600">
+            <input
+              type="checkbox"
+              checked={soloConStock}
+              onChange={(e) => setSoloConStock(e.target.checked)}
+            />
+            Solo con existencia
+          </label>
+          <button className="btn-secondary" onClick={descargarExcel}>
+            Descargar Excel
+          </button>
+          <button className="btn-secondary" onClick={descargarPdf}>
+            Descargar PDF
+          </button>
+        </div>
       </div>
 
       {loading && <p className="text-sm text-campo-400">Cargando...</p>}
