@@ -227,7 +227,7 @@ export default function ReportesRiegoPage() {
         </div>
         <div className="card p-4">
           <p className="text-xs text-campo-500">Lámina total aplicada</p>
-          <p className="text-2xl font-semibold text-campo-900">{totalLamina.toFixed(1)} mm·ha</p>
+          <p className="text-2xl font-semibold text-campo-900">{totalLamina.toFixed(1)} mm</p>
           <p className="text-[11px] text-campo-400">
             (lámina por hectárea × hectáreas de cada cuadro, sumado; el detalle por cuadro está abajo)
           </p>
@@ -289,7 +289,7 @@ export default function ReportesRiegoPage() {
               <th className="px-4 py-2">Horas totales</th>
               <th className="px-4 py-2">Lámina/ha (mm)</th>
               <th className="px-4 py-2">Lámina/ha promedio por riego</th>
-              <th className="px-4 py-2">Lámina total (mm·ha)</th>
+              <th className="px-4 py-2">Lámina total (mm)</th>
             </tr>
           </thead>
           <tbody>
@@ -310,7 +310,7 @@ export default function ReportesRiegoPage() {
                   {c.laminaHa > 0 ? `${(c.laminaHa / c.riegos).toFixed(1)} mm` : "—"}
                 </td>
                 <td className="px-4 py-2 text-campo-800">
-                  {c.laminaTotal > 0 ? `${c.laminaTotal.toFixed(1)} mm·ha` : "—"}
+                  {c.laminaTotal > 0 ? `${c.laminaTotal.toFixed(1)} mm` : "—"}
                 </td>
               </tr>
             ))}

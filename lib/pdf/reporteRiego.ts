@@ -35,7 +35,7 @@ export function generarPdfReporteRiego({
   doc.text(`Reporte de riego (${rango})`, 14, y);
   y += 6;
   doc.setFontSize(9);
-  doc.text(`Horas totales: ${totalHoras.toFixed(1)} h    Lamina total: ${totalLamina.toFixed(1)} mm x ha`, 14, y);
+  doc.text(`Horas totales: ${totalHoras.toFixed(1)} h    Lamina total: ${totalLamina.toFixed(1)} mm`, 14, y);
   y += 8;
 
   doc.setFontSize(11);
@@ -57,7 +57,7 @@ export function generarPdfReporteRiego({
   doc.text("Detalle por cuadro", 14, y);
   autoTable(doc, {
     startY: y + 3,
-    head: [["Campo", "Cuadro", "Ha", "No. riegos", "Horas", "Lamina/ha (mm)", "Lamina total (mm x ha)"]],
+    head: [["Campo", "Cuadro", "Ha", "No. riegos", "Horas", "Lamina/ha (mm)", "Lamina total (mm)"]],
     body: porCuadro.map((c) => [
       c.campo,
       c.nombre,

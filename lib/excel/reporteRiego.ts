@@ -31,7 +31,7 @@ export function generarExcelReporteRiego({
       "Horas totales": Number(c.horas.toFixed(2)),
       "Lámina/ha (mm)": Number(c.laminaHa.toFixed(2)),
       "Lámina/ha promedio por riego": c.riegos > 0 ? Number((c.laminaHa / c.riegos).toFixed(2)) : "",
-      "Lámina total (mm x ha)": Number(c.laminaTotal.toFixed(2)),
+      "Lámina total (mm)": Number(c.laminaTotal.toFixed(2)),
     }))
   );
   XLSX.utils.book_append_sheet(libro, hoja1, "Por cuadro");
