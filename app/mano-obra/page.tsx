@@ -1,5 +1,5 @@
 const SECCIONES = [
-  { nombre: "Plan semanal de labores", href: "/mano-obra/plan-semanal", listo: false },
+  { nombre: "Plan semanal de labores (deshierbe)", href: "/mano-obra/plan-semanal", listo: true },
 ];
 
 export default function ManoDeObraPage() {
