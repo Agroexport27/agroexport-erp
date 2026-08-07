@@ -1,6 +1,14 @@
 import * as XLSX from "xlsx";
 
-export type FilaCuadroRiego = { campo: string; nombre: string; riegos: number; horas: number; lamina: number };
+export type FilaCuadroRiego = {
+  campo: string;
+  nombre: string;
+  hectareas: number;
+  riegos: number;
+  horas: number;
+  laminaHa: number;
+  laminaTotal: number;
+};
 export type FilaMesRiego = { mes: string; horas: number };
 
 export function generarExcelReporteRiego({
@@ -18,10 +26,12 @@ export function generarExcelReporteRiego({
     porCuadro.map((c) => ({
       Campo: c.campo,
       Cuadro: c.nombre,
+      Hectáreas: c.hectareas,
       "No. riegos": c.riegos,
       "Horas totales": Number(c.horas.toFixed(2)),
-      "Lámina total (mm)": Number(c.lamina.toFixed(2)),
-      "Lámina promedio/riego": c.riegos > 0 ? Number((c.lamina / c.riegos).toFixed(2)) : "",
+      "Lámina/ha (mm)": Number(c.laminaHa.toFixed(2)),
+      "Lámina/ha promedio por riego": c.riegos > 0 ? Number((c.laminaHa / c.riegos).toFixed(2)) : "",
+      "Lámina total (mm x ha)": Number(c.laminaTotal.toFixed(2)),
     }))
   );
   XLSX.utils.book_append_sheet(libro, hoja1, "Por cuadro");
