@@ -130,10 +130,10 @@ export default function ReportesNominasPage() {
 
   // Cuando eliges un ciclo especifico, las hectareas por campo (usadas
   // en "Costo por campo" y para prorratear "General") pasan a ser las
-  // del Programa de hortaliza de ESE ciclo (no el total fisico del
-  // campo, y sin contar Solarizado ni cultivos perennes como Naranja,
-  // que se llevan aparte). Si un campo no tiene nada de eso capturado
-  // en ese ciclo, se deja en 1 ha (relleno), tal como se pidio.
+  // del Programa de ESE ciclo (no el total fisico del campo), sin
+  // contar Solarizado (que no es un cultivo productivo). Naranja y
+  // demas perennes SI cuentan normal. Si un campo no tiene nada
+  // capturado en ese ciclo, se deja en 1 ha (relleno).
   useEffect(() => {
     if (!cicloId) {
       setHectareasPorCampo(hectareasPorCampoFisico);
@@ -150,10 +150,8 @@ export default function ReportesNominasPage() {
           const nombreCampo = r.cuadros?.campos?.nombre;
           const cultivo = r.variedades?.cultivos;
           if (!nombreCampo) continue;
-          // El Solarizado no es un cultivo productivo todavia, y los
-          // perennes (ej. Naranja) se manejan aparte -- ninguno cuenta
-          // como hectarea de hortaliza de este ciclo.
-          if (cultivo?.nombre === "Solarizado" || cultivo?.perenne) continue;
+          // Solo el Solarizado se excluye (no es un cultivo productivo).
+          if (cultivo?.nombre === "Solarizado") continue;
           totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(r.hectareas ?? 0);
         }
         setCamposConProgramaReal(new Set(Object.keys(totales)));

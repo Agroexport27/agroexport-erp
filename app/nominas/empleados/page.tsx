@@ -20,6 +20,7 @@ export default function EmpleadosPage() {
           label: "Tipo de nómina",
           type: "select",
           options: [
+            { value: "eventual", label: "Eventual" },
             { value: "planta", label: "Planta" },
             { value: "temporal", label: "Temporal" },
           ],
