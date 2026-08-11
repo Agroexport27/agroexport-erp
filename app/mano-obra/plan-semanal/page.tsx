@@ -116,8 +116,8 @@ export default function PlanSemanalPage() {
     if (!actividadId) return;
     const semanaFin = sumarDias(semanaInicio, 6);
     const { data, error } = await supabase
-      .from("apuntador_diario")
-      .select("fecha, cuadro_id, empleado_id")
+      .from("mano_obra_jornales")
+      .select("fecha, cuadro_id, jornales")
       .eq("actividad_id", actividadId)
       .gte("fecha", semanaInicio)
       .lte("fecha", semanaFin);
@@ -152,14 +152,11 @@ export default function PlanSemanalPage() {
   }, [cuadrosPrograma, diasDeLaSemana]);
 
   const realesPorCuadroFecha = useMemo(() => {
-    const mapa = new Map<string, Set<string>>();
+    const conteos = new Map<string, number>();
     for (const r of registrosReales) {
       const key = `${r.cuadro_id}__${r.fecha}`;
-      if (!mapa.has(key)) mapa.set(key, new Set());
-      mapa.get(key)!.add(r.empleado_id);
+      conteos.set(key, (conteos.get(key) ?? 0) + Number(r.jornales));
     }
-    const conteos = new Map<string, number>();
-    for (const [key, set] of mapa.entries()) conteos.set(key, set.size);
     return conteos;
   }, [registrosReales]);
 
@@ -306,8 +303,8 @@ export default function PlanSemanalPage() {
       </div>
 
       <p className="text-xs text-campo-500">
-        El número chico "(real: N)" es lo que ya se capturó en el Apuntador para esa actividad, cuadro y día —
-        en verde si cumple o supera el plan, en naranja si falta gente.
+        El número chico "(real: N)" viene de Mano de obra → Registro real de jornales — en verde si cumple
+        o supera el plan, en naranja si falta gente.
       </p>
     </div>
   );
