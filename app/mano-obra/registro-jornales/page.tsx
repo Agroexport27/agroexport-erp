@@ -42,6 +42,7 @@ export default function RegistroJornalesPage() {
 
   const [cuadros, setCuadros] = useState<CuadroCol[]>([]);
   const [valores, setValores] = useState<Record<string, string>>({}); // key: cuadroId__fecha
+  const [celdasAutollenadas, setCeldasAutollenadas] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,17 +115,49 @@ export default function RegistroJornalesPage() {
   async function cargarValoresExistentes() {
     if (!actividadId || cuadros.length === 0) return;
     const semanaFin = sumarDias(semanaInicio, 6);
-    const { data } = await supabase
-      .from("mano_obra_jornales")
-      .select("cuadro_id, fecha, jornales")
-      .eq("actividad_id", actividadId)
-      .gte("fecha", semanaInicio)
-      .lte("fecha", semanaFin);
-    const nuevos: Record<string, string> = {};
-    for (const r of (data ?? []) as any[]) {
-      nuevos[`${r.cuadro_id}__${r.fecha}`] = String(r.jornales);
+
+    const [{ data: guardados }, { data: apuntador }] = await Promise.all([
+      supabase
+        .from("mano_obra_jornales")
+        .select("cuadro_id, fecha, jornales")
+        .eq("actividad_id", actividadId)
+        .gte("fecha", semanaInicio)
+        .lte("fecha", semanaFin),
+      supabase
+        .from("apuntador_diario")
+        .select("cuadro_id, fecha, empleado_id")
+        .eq("actividad_id", actividadId)
+        .gte("fecha", semanaInicio)
+        .lte("fecha", semanaFin),
+    ]);
+
+    // Cuenta gente distinta que ya capturo el Apuntador, por cuadro y dia
+    const conteoApuntador = new Map<string, Set<string>>();
+    for (const r of (apuntador ?? []) as any[]) {
+      const key = `${r.cuadro_id}__${r.fecha}`;
+      if (!conteoApuntador.has(key)) conteoApuntador.set(key, new Set());
+      conteoApuntador.get(key)!.add(r.empleado_id);
     }
+
+    const keysGuardados = new Set<string>();
+    const nuevos: Record<string, string> = {};
+    for (const r of (guardados ?? []) as any[]) {
+      const key = `${r.cuadro_id}__${r.fecha}`;
+      nuevos[key] = String(r.jornales);
+      keysGuardados.add(key);
+    }
+
+    // Para celdas sin nada guardado todavia, sugiere lo que ya se ve en
+    // el Apuntador (asi no hay que volver a contar a mano) -- solo hay
+    // que confirmar y darle Guardar.
+    for (const [key, set] of conteoApuntador.entries()) {
+      if (!keysGuardados.has(key)) {
+        nuevos[key] = String(set.size);
+      }
+    }
+
     setValores(nuevos);
+    setCeldasAutollenadas(new Set(Array.from(conteoApuntador.keys()).filter((k) => !keysGuardados.has(k))));
   }
 
   useEffect(() => {
@@ -138,7 +171,14 @@ export default function RegistroJornalesPage() {
   }, [semanaInicio, actividadId, cuadros]);
 
   function actualizarCelda(cuadroId: string, fecha: string, valor: string) {
-    setValores((prev) => ({ ...prev, [`${cuadroId}__${fecha}`]: valor }));
+    const key = `${cuadroId}__${fecha}`;
+    setValores((prev) => ({ ...prev, [key]: valor }));
+    setCeldasAutollenadas((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
   }
 
   async function guardar() {
@@ -182,6 +222,7 @@ export default function RegistroJornalesPage() {
       return;
     }
     setMensajeExito(`Guardado: ${filas.length} celda(s).`);
+    setCeldasAutollenadas(new Set());
     setTimeout(() => setMensajeExito(null), 4000);
   }
 
@@ -198,7 +239,9 @@ export default function RegistroJornalesPage() {
       <h1 className="text-2xl font-semibold text-campo-900">Registro real de jornales</h1>
       <p className="mb-6 text-sm text-campo-600">
         Cuántas personas entraron a cada cuadro cada día — solo el número, sin nombres ni dinero.
-        Se compara contra el Plan semanal automáticamente.
+        Se compara contra el Plan semanal automáticamente. Las celdas en{" "}
+        <span className="rounded bg-amber-50 px-1">amarillo claro</span> son una sugerencia tomada de lo
+        que ya se capturó en el Apuntador — revísalas y dale "Guardar semana" para confirmarlas.
       </p>
 
       {error && (
@@ -288,17 +331,22 @@ export default function RegistroJornalesPage() {
                     <br />
                     <span className="text-[10px] text-campo-400">{fecha}</span>
                   </td>
-                  {cuadros.map((c) => (
-                    <td key={c.cuadroId} className="px-1 py-1">
-                      <input
-                        type="number"
-                        min={0}
-                        className="input w-16 text-center"
-                        value={valores[`${c.cuadroId}__${fecha}`] ?? ""}
-                        onChange={(e) => actualizarCelda(c.cuadroId, fecha, e.target.value)}
-                      />
-                    </td>
-                  ))}
+                  {cuadros.map((c) => {
+                    const key = `${c.cuadroId}__${fecha}`;
+                    const esAuto = celdasAutollenadas.has(key);
+                    return (
+                      <td key={c.cuadroId} className="px-1 py-1">
+                        <input
+                          type="number"
+                          min={0}
+                          className={`input w-16 text-center ${esAuto ? "bg-amber-50" : ""}`}
+                          title={esAuto ? "Sugerido del Apuntador — confirma y guarda" : ""}
+                          value={valores[key] ?? ""}
+                          onChange={(e) => actualizarCelda(c.cuadroId, fecha, e.target.value)}
+                        />
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-1 text-center font-medium text-campo-800">
                     {totalPorDia[i] || "—"}
                   </td>
