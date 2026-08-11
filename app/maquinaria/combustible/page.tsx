@@ -2,14 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import BuscadorEmpleado from "@/components/BuscadorEmpleado";
 
 type Opcion = { id: string; label: string; tipo?: string };
+type Empleado = { id: string; clave: string; nombre: string };
 
 export default function CombustiblePage() {
   const supabase = createClient();
 
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [unidades, setUnidades] = useState<Opcion[]>([]);
+  const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [stock, setStock] = useState<any[]>([]);
   const [recientes, setRecientes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,9 +26,27 @@ export default function CombustiblePage() {
   const [campoId, setCampoId] = useState("");
   const [litros, setLitros] = useState("");
   const [unidadId, setUnidadId] = useState("");
-  const [chofer, setChofer] = useState("");
+  const [choferTexto, setChoferTexto] = useState("");
+  const [choferEmpleadoId, setChoferEmpleadoId] = useState<string | null>(null);
   const [folio, setFolio] = useState("");
   const [observaciones, setObservaciones] = useState("");
+
+  async function fetchTodasLasFilas(construirQuery: (desde: number, hasta: number) => any) {
+    const TAMANO = 1000;
+    let todas: any[] = [];
+    let desde = 0;
+    while (true) {
+      const { data, error } = await construirQuery(desde, desde + TAMANO - 1);
+      if (error) {
+        setError(error.message);
+        break;
+      }
+      todas = todas.concat(data ?? []);
+      if (!data || data.length < TAMANO) break;
+      desde += TAMANO;
+    }
+    return todas;
+  }
 
   async function cargarCatalogos() {
     const [{ data: camp }, { data: uni }] = await Promise.all([
@@ -34,6 +55,12 @@ export default function CombustiblePage() {
     ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setUnidades((uni ?? []).map((u: any) => ({ id: u.id, label: u.nombre, tipo: u.tipo_combustible })));
+
+    const emp = await fetchTodasLasFilas((desde, hasta) =>
+      supabase.from("empleados").select("id, clave, nombre").eq("activo", true).order("clave").range(desde, hasta)
+    );
+    emp.sort((a: any, b: any) => Number(a.clave) - Number(b.clave) || a.clave.localeCompare(b.clave));
+    setEmpleados(emp);
   }
 
   async function cargarStock() {
@@ -49,7 +76,7 @@ export default function CombustiblePage() {
     const { data, error } = await supabase
       .from("combustible_movimientos")
       .select(
-        "id, tipo_combustible, tipo, fecha, litros, folio, chofer, observaciones, campos(nombre), catalogo_unidades(nombre)"
+        "id, tipo_combustible, tipo, fecha, litros, folio, observaciones, campos(nombre), catalogo_unidades(nombre), empleados(clave, nombre)"
       )
       .order("created_at", { ascending: false })
       .limit(30);
@@ -78,6 +105,10 @@ export default function CombustiblePage() {
       setError("Selecciona la unidad que recibió el combustible.");
       return;
     }
+    if (tipoMovimiento === "salida" && choferTexto && !choferEmpleadoId) {
+      setError("El chofer debe seleccionarse de la lista de empleados.");
+      return;
+    }
     setGuardando(true);
     setError(null);
 
@@ -88,7 +119,7 @@ export default function CombustiblePage() {
       tipo: tipoMovimiento,
       litros: parseFloat(litros),
       unidad_id: tipoMovimiento === "salida" ? unidadId : null,
-      chofer: tipoMovimiento === "salida" ? chofer || null : null,
+      chofer_empleado_id: tipoMovimiento === "salida" ? choferEmpleadoId : null,
       folio: folio || null,
       observaciones: observaciones || null,
     });
@@ -104,7 +135,8 @@ export default function CombustiblePage() {
     );
     setLitros("");
     setUnidadId("");
-    setChofer("");
+    setChoferTexto("");
+    setChoferEmpleadoId(null);
     setFolio("");
     setObservaciones("");
     cargarStock();
@@ -220,7 +252,17 @@ export default function CombustiblePage() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-campo-600">Chofer / Operador</label>
-                <input className="input" value={chofer} onChange={(e) => setChofer(e.target.value)} />
+                <BuscadorEmpleado
+                  empleados={empleados}
+                  valorTexto={choferTexto}
+                  onSeleccionar={(empleadoId, texto) => {
+                    setChoferTexto(texto);
+                    setChoferEmpleadoId(empleadoId);
+                  }}
+                />
+                {choferTexto && !choferEmpleadoId && (
+                  <p className="text-[10px] text-red-500">Sin seleccionar de la lista</p>
+                )}
               </div>
             </>
           )}
@@ -269,7 +311,9 @@ export default function CombustiblePage() {
                 <td className="px-4 py-2 text-campo-800 capitalize">{m.tipo_combustible}</td>
                 <td className="px-4 py-2 text-campo-800">{m.campos?.nombre}</td>
                 <td className="px-4 py-2 text-campo-800">{m.catalogo_unidades?.nombre ?? "—"}</td>
-                <td className="px-4 py-2 text-campo-800">{m.chofer ?? "—"}</td>
+                <td className="px-4 py-2 text-campo-800">
+                  {m.empleados ? `${m.empleados.clave} — ${m.empleados.nombre}` : "—"}
+                </td>
                 <td className="px-4 py-2 text-campo-800">{m.litros} L</td>
                 <td className="px-4 py-2 text-right">
                   <button className="btn-danger" onClick={() => eliminarMovimiento(m.id)}>

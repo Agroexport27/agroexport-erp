@@ -37,7 +37,7 @@ export default function ReportesCombustiblePage() {
     let query = supabase
       .from("combustible_movimientos")
       .select(
-        "id, fecha, tipo_combustible, tipo, litros, folio, chofer, campos(nombre), catalogo_unidades(nombre)"
+        "id, fecha, tipo_combustible, tipo, litros, folio, campos(nombre), catalogo_unidades(nombre), empleados(clave, nombre)"
       )
       .eq("tipo", "salida") // el gasto real es lo que sale a las unidades
       .gte("fecha", fechaInicio)
@@ -66,7 +66,7 @@ export default function ReportesCombustiblePage() {
       const litros = Number(r.litros ?? 0);
       const campo = r.campos?.nombre ?? "Sin campo";
       const unidad = r.catalogo_unidades?.nombre ?? "Sin unidad";
-      const chofer = r.chofer?.trim() || "Sin chofer";
+      const chofer = r.empleados ? `${r.empleados.clave} — ${r.empleados.nombre}` : "Sin chofer";
 
       campoMap.set(campo, (campoMap.get(campo) ?? 0) + litros);
       unidadMap.set(unidad, (unidadMap.get(unidad) ?? 0) + litros);
