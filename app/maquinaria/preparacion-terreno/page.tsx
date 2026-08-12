@@ -146,6 +146,59 @@ export default function PreparacionTerrenoPage() {
     return mapa;
   }, [cuadros, actividades]);
 
+  const [resumenCuadros, setResumenCuadros] = useState<
+    (Cuadro & { campoNombre: string })[]
+  >([]);
+  const [resumenCeldas, setResumenCeldas] = useState<Record<string, boolean>>({});
+
+  async function cargarResumenFaltantes() {
+    if (!cicloId) return;
+    const { data: prog } = await supabase
+      .from("cuadro_ciclo")
+      .select("hectareas, fecha_planeada, fecha_real, cuadros(id, nombre, orden, campos(nombre))")
+      .eq("ciclo_id", cicloId);
+    const filas = (prog ?? []).map((r: any) => ({
+      cuadroId: r.cuadros?.id,
+      nombre: r.cuadros?.nombre ?? "",
+      campoNombre: r.cuadros?.campos?.nombre ?? "",
+      hectareas: Number(r.hectareas ?? 0),
+      fechaTrasplante: r.fecha_real ?? r.fecha_planeada ?? null,
+    }));
+    setResumenCuadros(filas);
+
+    const cuadroIds = filas.map((f) => f.cuadroId);
+    if (cuadroIds.length > 0) {
+      const { data: estatus } = await supabase
+        .from("preparacion_terreno_estatus")
+        .select("cuadro_id, actividad_prep_id, completado")
+        .eq("ciclo_id", cicloId)
+        .in("cuadro_id", cuadroIds);
+      const mapa: Record<string, boolean> = {};
+      for (const e of (estatus ?? []) as any[]) {
+        mapa[`${e.actividad_prep_id}__${e.cuadro_id}`] = e.completado;
+      }
+      setResumenCeldas(mapa);
+    } else {
+      setResumenCeldas({});
+    }
+  }
+
+  useEffect(() => {
+    cargarResumenFaltantes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cicloId]);
+
+  const faltantesPorActividad = useMemo(() => {
+    return actividades.map((a) => {
+      const cuadrosFaltantes = resumenCuadros.filter(
+        (c) => !(resumenCeldas[`${a.id}__${c.cuadroId}`] ?? false)
+      );
+      const totalHa = cuadrosFaltantes.reduce((s, c) => s + c.hectareas, 0);
+      return { actividad: a.nombre, totalHa, cuadros: cuadrosFaltantes };
+    });
+  }, [actividades, resumenCuadros, resumenCeldas]);
+
+
   function toggleCompletado(actividadId: string, cuadroId: string) {
     const key = `${actividadId}__${cuadroId}`;
     setCeldas((prev) => {
@@ -201,6 +254,7 @@ export default function PreparacionTerrenoPage() {
     setMensajeExito(`Guardado: ${filas.length} cambio(s).`);
     setTimeout(() => setMensajeExito(null), 4000);
     cargarDatos();
+    cargarResumenFaltantes();
   }
 
   function descargarPdf() {
@@ -330,6 +384,43 @@ export default function PreparacionTerrenoPage() {
           </table>
         </div>
       )}
+
+      <h2 className="mb-2 mt-8 text-sm font-semibold text-campo-800">
+        Resumen de faltantes — todo el ciclo, todos los campos
+      </h2>
+      <p className="mb-3 text-xs text-campo-500">
+        Cuántas hectáreas faltan de cada actividad, y de qué cuadros exactamente.
+      </p>
+      {faltantesPorActividad.map((f) => (
+        <details key={f.actividad} className="card mb-2 overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
+            <span className="text-sm font-medium text-campo-800">{f.actividad}</span>
+            <span className="text-xs text-campo-600">
+              {f.totalHa > 0 ? `Faltan ${f.totalHa.toFixed(1)} ha` : "Completo ✓"}
+            </span>
+          </summary>
+          {f.cuadros.length > 0 && (
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs font-medium text-campo-500">
+                <tr>
+                  <th className="px-4 py-1">Campo</th>
+                  <th className="px-4 py-1">Cuadro</th>
+                  <th className="px-4 py-1">Hectáreas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {f.cuadros.map((c) => (
+                  <tr key={c.cuadroId} className="border-t border-campo-50">
+                    <td className="px-4 py-1 text-campo-800">{c.campoNombre}</td>
+                    <td className="px-4 py-1 text-campo-800">{c.nombre}</td>
+                    <td className="px-4 py-1 text-campo-800">{c.hectareas} ha</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </details>
+      ))}
     </div>
   );
 }
