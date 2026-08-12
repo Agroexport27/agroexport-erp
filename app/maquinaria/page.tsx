@@ -1,4 +1,5 @@
 const SECCIONES = [
+  { nombre: "Preparación de terreno", href: "/maquinaria/preparacion-terreno", listo: true },
   { nombre: "Combustible (entradas/salidas)", href: "/maquinaria/combustible", listo: true },
   { nombre: "Reportes de combustible", href: "/maquinaria/combustible/reportes", listo: true },
   { nombre: "Unidades (tractores, camionetas...)", href: "/maquinaria/unidades", listo: true },
