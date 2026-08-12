@@ -133,12 +133,14 @@ export default function PreparacionTerrenoPage() {
   // rendimiento en dias/hectarea).
   const fechasEstimadas = useMemo(() => {
     const mapa: Record<string, string> = {};
+    const DIAS_ANTES_DE_TRASPLANTE = 7; // meta: listo 1 semana antes
     for (const cuadro of cuadros) {
       if (!cuadro.fechaTrasplante) continue;
+      const fechaMeta = sumarDias(cuadro.fechaTrasplante, DIAS_ANTES_DE_TRASPLANTE);
       const duraciones = actividades.map((a) => a.diasPorHectarea * cuadro.hectareas);
       for (let i = 0; i < actividades.length; i++) {
         const restante = duraciones.slice(i + 1).reduce((s, d) => s + d, 0);
-        mapa[`${actividades[i].id}__${cuadro.cuadroId}`] = sumarDias(cuadro.fechaTrasplante, Math.round(restante));
+        mapa[`${actividades[i].id}__${cuadro.cuadroId}`] = sumarDias(fechaMeta, Math.round(restante));
       }
     }
     return mapa;
