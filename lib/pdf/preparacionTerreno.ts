@@ -26,7 +26,7 @@ export function generarPdfPreparacionTerreno({
   doc.setFontSize(11);
   doc.text(`Preparación de terreno — ${campoNombre}`, 14, 21);
   doc.setFontSize(8);
-  doc.text("Las fechas en blanco son pasos pendientes (todavía no realizados).", 14, 26);
+  doc.text("Una X significa que ese paso ya está listo. En blanco = todavía pendiente.", 14, 26);
 
   const head = [["Actividad", ...cuadros.map((c) => c.nombre)]];
   const body = actividades.map((nombreActividad, i) =>
@@ -35,8 +35,7 @@ export function generarPdfPreparacionTerreno({
       ...cuadros.map((c) => {
         const celda = c.celdas[i];
         if (!celda) return "";
-        // Pendiente -> se borra la fecha, solo queda vacio
-        return celda.completado ? celda.fecha || "Listo" : "";
+        return celda.completado ? "X" : "";
       }),
     ]
   );

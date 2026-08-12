@@ -104,12 +104,12 @@ export default function PreparacionTerrenoPage() {
     if (cuadroIds.length > 0) {
       const { data: estatus } = await supabase
         .from("preparacion_terreno_estatus")
-        .select("cuadro_id, actividad_id, completado, fecha")
+        .select("cuadro_id, actividad_prep_id, completado, fecha")
         .eq("ciclo_id", cicloId)
         .in("cuadro_id", cuadroIds);
       const nuevasCeldas: Record<string, Celda> = {};
       for (const e of (estatus ?? []) as any[]) {
-        nuevasCeldas[`${e.actividad_id}__${e.cuadro_id}`] = {
+        nuevasCeldas[`${e.actividad_prep_id}__${e.cuadro_id}`] = {
           completado: e.completado,
           fecha: e.fecha ?? "",
         };
@@ -153,7 +153,7 @@ export default function PreparacionTerrenoPage() {
         ...prev,
         [key]: {
           completado: nuevoCompletado,
-          fecha: actual?.fecha || (nuevoCompletado ? new Date().toISOString().slice(0, 10) : ""),
+          fecha: nuevoCompletado ? actual?.fecha || new Date().toISOString().slice(0, 10) : "",
           dirty: true,
         },
       };
@@ -176,7 +176,7 @@ export default function PreparacionTerrenoPage() {
       .map(([key, v]) => {
         const [actividadId, cuadroId] = key.split("__");
         return {
-          actividad_id: actividadId,
+          actividad_prep_id: actividadId,
           cuadro_id: cuadroId,
           ciclo_id: cicloId,
           completado: v.completado,
@@ -190,7 +190,7 @@ export default function PreparacionTerrenoPage() {
     }
     const { error } = await supabase
       .from("preparacion_terreno_estatus")
-      .upsert(filas, { onConflict: "cuadro_id,ciclo_id,actividad_id" });
+      .upsert(filas, { onConflict: "cuadro_id,ciclo_id,actividad_prep_id" });
     setGuardando(false);
     if (error) {
       setError(error.message);
@@ -303,9 +303,6 @@ export default function PreparacionTerrenoPage() {
                     const key = `${a.id}__${c.cuadroId}`;
                     const celda = celdas[key];
                     const completado = celda?.completado ?? false;
-                    const fechaMostrar = completado
-                      ? celda?.fecha || fechasEstimadas[key] || ""
-                      : fechasEstimadas[key] || "";
                     return (
                       <td key={c.cuadroId} className="px-1 py-1 text-center">
                         <div className="flex flex-col items-center gap-0.5">
@@ -315,14 +312,11 @@ export default function PreparacionTerrenoPage() {
                             onChange={() => toggleCompletado(a.id, c.cuadroId)}
                           />
                           {completado ? (
-                            <input
-                              type="date"
-                              className="input w-28 px-1 py-0.5 text-[10px]"
-                              value={fechaMostrar}
-                              onChange={(e) => cambiarFecha(a.id, c.cuadroId, e.target.value)}
-                            />
+                            <span className="text-xs text-campo-600">✓ Listo</span>
                           ) : (
-                            <span className="text-[10px] italic text-campo-400">{fechaMostrar || "—"}</span>
+                            <span className="text-[10px] italic text-campo-400">
+                              {fechasEstimadas[key] || "—"}
+                            </span>
                           )}
                         </div>
                       </td>
