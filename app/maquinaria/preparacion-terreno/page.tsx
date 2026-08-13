@@ -194,7 +194,23 @@ export default function PreparacionTerrenoPage() {
         (c) => !(resumenCeldas[`${a.id}__${c.cuadroId}`] ?? false)
       );
       const totalHa = cuadrosFaltantes.reduce((s, c) => s + c.hectareas, 0);
-      return { actividad: a.nombre, totalHa, cuadros: cuadrosFaltantes };
+
+      const porCampo = new Map<string, typeof cuadrosFaltantes>();
+      for (const c of cuadrosFaltantes) {
+        if (!porCampo.has(c.campoNombre)) porCampo.set(c.campoNombre, []);
+        porCampo.get(c.campoNombre)!.push(c);
+      }
+      const grupos = Array.from(porCampo.entries())
+        .map(([campo, cuadros]) => ({
+          campo,
+          cuadros: cuadros.sort((x, y) =>
+            x.nombre.localeCompare(y.nombre, undefined, { numeric: true })
+          ),
+          totalHa: cuadros.reduce((s, c) => s + c.hectareas, 0),
+        }))
+        .sort((x, y) => x.campo.localeCompare(y.campo));
+
+      return { actividad: a.nombre, totalHa, grupos };
     });
   }, [actividades, resumenCuadros, resumenCeldas]);
 
@@ -399,25 +415,27 @@ export default function PreparacionTerrenoPage() {
               {f.totalHa > 0 ? `Faltan ${f.totalHa.toFixed(1)} ha` : "Completo ✓"}
             </span>
           </summary>
-          {f.cuadros.length > 0 && (
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs font-medium text-campo-500">
-                <tr>
-                  <th className="px-4 py-1">Campo</th>
-                  <th className="px-4 py-1">Cuadro</th>
-                  <th className="px-4 py-1">Hectáreas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {f.cuadros.map((c) => (
-                  <tr key={c.cuadroId} className="border-t border-campo-50">
-                    <td className="px-4 py-1 text-campo-800">{c.campoNombre}</td>
-                    <td className="px-4 py-1 text-campo-800">{c.nombre}</td>
-                    <td className="px-4 py-1 text-campo-800">{c.hectareas} ha</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {f.grupos.length > 0 && (
+            <div className="px-3 py-2">
+              {f.grupos.map((g) => (
+                <div key={g.campo} className="mb-2 rounded border border-campo-100">
+                  <div className="flex items-center justify-between bg-campo-50/60 px-3 py-1.5">
+                    <span className="text-sm text-campo-800">{g.campo}</span>
+                    <span className="text-xs text-campo-500">{g.totalHa.toFixed(1)} ha</span>
+                  </div>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {g.cuadros.map((c) => (
+                        <tr key={c.cuadroId} className="border-t border-campo-50">
+                          <td className="px-4 py-1 text-campo-800">Cuadro {c.nombre}</td>
+                          <td className="px-4 py-1 text-right text-campo-600">{c.hectareas} ha</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
           )}
         </details>
       ))}
