@@ -51,7 +51,7 @@ export default function CombustiblePage() {
   async function cargarCatalogos() {
     const [{ data: camp }, { data: uni }] = await Promise.all([
       supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-      supabase.from("catalogo_unidades").select("id, nombre, tipo_combustible").eq("activo", true).order("nombre"),
+      supabase.from("vehiculos").select("id, nombre, tipo_combustible").eq("activo", true).order("nombre"),
     ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setUnidades((uni ?? []).map((u: any) => ({ id: u.id, label: u.nombre, tipo: u.tipo_combustible })));
@@ -76,7 +76,7 @@ export default function CombustiblePage() {
     const { data, error } = await supabase
       .from("combustible_movimientos")
       .select(
-        "id, tipo_combustible, tipo, fecha, litros, folio, observaciones, campos(nombre), catalogo_unidades(nombre), empleados(clave, nombre)"
+        "id, tipo_combustible, tipo, fecha, litros, folio, observaciones, campos(nombre), vehiculos(nombre), empleados(clave, nombre)"
       )
       .order("created_at", { ascending: false })
       .limit(30);
@@ -118,7 +118,7 @@ export default function CombustiblePage() {
       fecha,
       tipo: tipoMovimiento,
       litros: parseFloat(litros),
-      unidad_id: tipoMovimiento === "salida" ? unidadId : null,
+      vehiculo_id: tipoMovimiento === "salida" ? unidadId : null,
       chofer_empleado_id: tipoMovimiento === "salida" ? choferEmpleadoId : null,
       folio: folio || null,
       observaciones: observaciones || null,
@@ -310,7 +310,7 @@ export default function CombustiblePage() {
                 </td>
                 <td className="px-4 py-2 text-campo-800 capitalize">{m.tipo_combustible}</td>
                 <td className="px-4 py-2 text-campo-800">{m.campos?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{m.catalogo_unidades?.nombre ?? "—"}</td>
+                <td className="px-4 py-2 text-campo-800">{m.vehiculos?.nombre ?? "—"}</td>
                 <td className="px-4 py-2 text-campo-800">
                   {m.empleados ? `${m.empleados.clave} — ${m.empleados.nombre}` : "—"}
                 </td>

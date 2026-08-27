@@ -17,6 +17,16 @@ export default function VehiculosPage() {
           relacion: { tabla: "campos", valueCol: "id", labelCol: "nombre" },
         },
         { name: "tarifa_interna_por_turno", label: "Tarifa/turno", type: "number" },
+        {
+          name: "tipo_combustible",
+          label: "Combustible",
+          type: "select",
+          requerido: true,
+          options: [
+            { value: "diesel", label: "Diésel" },
+            { value: "gasolina", label: "Gasolina" },
+          ],
+        },
       ]}
     />
   );
