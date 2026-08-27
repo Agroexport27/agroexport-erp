@@ -2,21 +2,31 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 type NodoProducto = { nombre: string; cantidad: number; unidad: string };
-type NodoCuadro1 = { nombre: string; productos: NodoProducto[] };
+type NodoCuadro1 = { nombre: string; hectareas?: number; productos: NodoProducto[] };
 type NodoCampo1 = { nombre: string; cuadros: NodoCuadro1[] };
 
 type NodoCuadro2 = { nombre: string; cantidad: number; unidad: string };
 type NodoProducto2 = { nombre: string; total: number; cuadros: NodoCuadro2[] };
 type NodoCampo2 = { nombre: string; productos: NodoProducto2[] };
 
+type FilaTotalProducto = {
+  producto: string;
+  cantidad: number;
+  unidad: string;
+  hectareas: number;
+  cantidadPorHa: number | null;
+};
+
 const ALTO_PAGINA = 280;
 
 export function generarPdfReporteAgroquimicos({
   rango,
+  porProducto,
   jerarquiaCuadroProducto,
   jerarquiaProductoCuadro,
 }: {
   rango: string;
+  porProducto: FilaTotalProducto[];
   jerarquiaCuadroProducto: NodoCampo1[];
   jerarquiaProductoCuadro: NodoCampo2[];
 }) {
@@ -36,6 +46,24 @@ export function generarPdfReporteAgroquimicos({
   doc.setFontSize(11);
   doc.text(`Reporte de agroquimicos (${rango})`, 14, y);
   y += 10;
+
+  doc.setFontSize(12);
+  doc.text("Acumulado por producto", 14, y);
+  autoTable(doc, {
+    startY: y + 3,
+    head: [["Producto", "Total", "Hectareas", "Cantidad/ha"]],
+    body: porProducto.map((p) => [
+      p.producto,
+      `${p.cantidad.toFixed(2)} ${p.unidad}`,
+      p.hectareas > 0 ? `${p.hectareas.toFixed(1)} ha` : "-",
+      p.cantidadPorHa != null ? `${p.cantidadPorHa.toFixed(2)} ${p.unidad}/ha` : "-",
+    ]),
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [92, 140, 58] },
+  });
+  y = (doc as any).lastAutoTable.finalY + 10;
+  doc.addPage();
+  y = 16;
 
   doc.setFontSize(12);
   doc.text("Desglose por campo: Cuadros > Productos", 14, y);

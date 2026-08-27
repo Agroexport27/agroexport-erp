@@ -85,7 +85,7 @@ export default function ReportesAgroquimicosPage() {
   // Jerarquia 1: Campo -> Cuadro -> Producto
   const jerarquiaCuadroProducto = useMemo(() => {
     type NodoProducto = { nombre: string; cantidad: number; unidad: string };
-    type NodoCuadro = { nombre: string; productos: Map<string, NodoProducto> };
+    type NodoCuadro = { nombre: string; hectareas: number; productos: Map<string, NodoProducto> };
     type NodoCampo = { nombre: string; cuadros: Map<string, NodoCuadro> };
 
     const campoMap = new Map<string, NodoCampo>();
@@ -94,9 +94,10 @@ export default function ReportesAgroquimicosPage() {
       const nombreCuadro = r.cuadros?.nombre ?? "Sin cuadro";
       const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
       const cantidad = Number(r.cantidad ?? 0);
+      const hectareas = Number(r.cuadros?.hectareas ?? 0);
 
       const campo = campoMap.get(nombreCampo) ?? { nombre: nombreCampo, cuadros: new Map() };
-      const cuadro = campo.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, productos: new Map() };
+      const cuadro = campo.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, hectareas, productos: new Map() };
       const producto = cuadro.productos.get(nombreProducto) ?? { nombre: nombreProducto, cantidad: 0, unidad: r.unidad };
       producto.cantidad += cantidad;
       cuadro.productos.set(nombreProducto, producto);
@@ -109,6 +110,7 @@ export default function ReportesAgroquimicosPage() {
       cuadros: Array.from(c.cuadros.values())
         .map((q) => ({
           nombre: q.nombre,
+          hectareas: q.hectareas,
           productos: Array.from(q.productos.values()).sort((a, b) => b.cantidad - a.cantidad),
           total: Array.from(q.productos.values()).reduce((s, p) => s + p.cantidad, 0),
         }))
@@ -150,6 +152,36 @@ export default function ReportesAgroquimicosPage() {
     }));
   }, [registros]);
 
+  // Acumulado por producto: total aplicado + hectareas distintas que lo
+  // recibieron + cantidad/ha promedio sobre esas hectareas.
+  const porProducto = useMemo(() => {
+    type Acum = { nombre: string; unidad: string; cantidad: number; hectareas: Map<string, number> };
+    const mapa = new Map<string, Acum>();
+    for (const r of registros) {
+      const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
+      const cantidad = Number(r.cantidad ?? 0);
+      const cuadroKey = `${r.cuadros?.campos?.nombre ?? ""}__${r.cuadros?.nombre ?? ""}`;
+      const hectareasCuadro = Number(r.cuadros?.hectareas ?? 0);
+
+      const item = mapa.get(nombreProducto) ?? { nombre: nombreProducto, unidad: r.unidad, cantidad: 0, hectareas: new Map() };
+      item.cantidad += cantidad;
+      if (!item.hectareas.has(cuadroKey)) item.hectareas.set(cuadroKey, hectareasCuadro);
+      mapa.set(nombreProducto, item);
+    }
+    return Array.from(mapa.values())
+      .map((p) => {
+        const totalHectareas = Array.from(p.hectareas.values()).reduce((s, h) => s + h, 0);
+        return {
+          nombre: p.nombre,
+          unidad: p.unidad,
+          cantidad: p.cantidad,
+          hectareas: totalHectareas,
+          cantidadPorHa: totalHectareas > 0 ? p.cantidad / totalHectareas : null,
+        };
+      })
+      .sort((a, b) => b.cantidad - a.cantidad);
+  }, [registros]);
+
   const rango = `${fechaInicio}_a_${fechaFin}`;
 
   function descargarExcel() {
@@ -169,12 +201,13 @@ export default function ReportesAgroquimicosPage() {
         }
       }
     }
-    generarExcelReporteAgroquimicos({ rango, cuadroProducto, productoCuadro });
+    generarExcelReporteAgroquimicos({ rango, porProducto, cuadroProducto, productoCuadro });
   }
 
   function descargarPdf() {
     generarPdfReporteAgroquimicos({
       rango,
+      porProducto,
       jerarquiaCuadroProducto,
       jerarquiaProductoCuadro,
     });
@@ -250,6 +283,35 @@ export default function ReportesAgroquimicosPage() {
         </div>
       </div>
 
+      <h2 className="mb-2 text-sm font-semibold text-campo-800">Acumulado por producto</h2>
+      <div className="card mb-6 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
+            <tr>
+              <th className="px-4 py-2">Producto</th>
+              <th className="px-4 py-2">Total</th>
+              <th className="px-4 py-2">Hectáreas</th>
+              <th className="px-4 py-2">Cantidad/ha</th>
+            </tr>
+          </thead>
+          <tbody>
+            {porProducto.length === 0 && (
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={4}>Sin datos.</td></tr>
+            )}
+            {porProducto.map((p) => (
+              <tr key={p.nombre} className="border-t border-campo-50">
+                <td className="px-4 py-2 text-campo-800">{p.nombre}</td>
+                <td className="px-4 py-2 text-campo-800">{p.cantidad.toFixed(2)} {p.unidad}</td>
+                <td className="px-4 py-2 text-campo-800">{p.hectareas > 0 ? `${p.hectareas.toFixed(1)} ha` : "—"}</td>
+                <td className="px-4 py-2 text-campo-800">
+                  {p.cantidadPorHa != null ? `${p.cantidadPorHa.toFixed(2)} ${p.unidad}/ha` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       <h2 className="mb-2 mt-6 text-sm font-semibold text-campo-800">
         Desglose por campo: Cuadros → Productos
       </h2>
@@ -266,12 +328,16 @@ export default function ReportesAgroquimicosPage() {
               <details key={cuadro.nombre} className="mb-1 rounded border border-campo-100">
                 <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-3 py-1.5">
                   <span className="text-sm text-campo-800">{cuadro.nombre}</span>
+                  <span className="text-xs text-campo-500">
+                    {cuadro.hectareas > 0 ? `${cuadro.hectareas} ha` : ""}
+                  </span>
                 </summary>
                 <table className="w-full text-sm">
                   <thead className="text-left text-xs font-medium text-campo-500">
                     <tr>
                       <th className="px-4 py-1">Producto</th>
                       <th className="px-4 py-1">Cantidad</th>
+                      <th className="px-4 py-1">Cantidad/ha</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -279,6 +345,9 @@ export default function ReportesAgroquimicosPage() {
                       <tr key={p.nombre} className="border-t border-campo-50">
                         <td className="px-4 py-1 text-campo-800">{p.nombre}</td>
                         <td className="px-4 py-1 text-campo-800">{p.cantidad.toFixed(2)} {p.unidad}</td>
+                        <td className="px-4 py-1 text-campo-800">
+                          {cuadro.hectareas > 0 ? `${(p.cantidad / cuadro.hectareas).toFixed(2)} ${p.unidad}/ha` : "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
