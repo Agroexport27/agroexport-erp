@@ -120,7 +120,7 @@ export default function ReportesAgroquimicosPage() {
 
   // Jerarquia 2: Campo -> Producto -> Cuadro
   const jerarquiaProductoCuadro = useMemo(() => {
-    type NodoCuadro = { nombre: string; cantidad: number; unidad: string };
+    type NodoCuadro = { nombre: string; hectareas: number; cantidad: number; unidad: string };
     type NodoProducto = { nombre: string; cuadros: Map<string, NodoCuadro> };
     type NodoCampo = { nombre: string; productos: Map<string, NodoProducto> };
 
@@ -130,10 +130,11 @@ export default function ReportesAgroquimicosPage() {
       const nombreCuadro = r.cuadros?.nombre ?? "Sin cuadro";
       const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
       const cantidad = Number(r.cantidad ?? 0);
+      const hectareas = Number(r.cuadros?.hectareas ?? 0);
 
       const campo = campoMap.get(nombreCampo) ?? { nombre: nombreCampo, productos: new Map() };
       const producto = campo.productos.get(nombreProducto) ?? { nombre: nombreProducto, cuadros: new Map() };
-      const cuadro = producto.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, cantidad: 0, unidad: r.unidad };
+      const cuadro = producto.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, hectareas, cantidad: 0, unidad: r.unidad };
       cuadro.cantidad += cantidad;
       producto.cuadros.set(nombreCuadro, cuadro);
       campo.productos.set(nombreProducto, producto);
@@ -382,14 +383,20 @@ export default function ReportesAgroquimicosPage() {
                   <thead className="text-left text-xs font-medium text-campo-500">
                     <tr>
                       <th className="px-4 py-1">Cuadro</th>
+                      <th className="px-4 py-1">Hectáreas</th>
                       <th className="px-4 py-1">Cantidad</th>
+                      <th className="px-4 py-1">Cantidad/ha</th>
                     </tr>
                   </thead>
                   <tbody>
                     {producto.cuadros.map((c) => (
                       <tr key={c.nombre} className="border-t border-campo-50">
                         <td className="px-4 py-1 text-campo-800">{c.nombre}</td>
+                        <td className="px-4 py-1 text-campo-800">{c.hectareas > 0 ? `${c.hectareas} ha` : "—"}</td>
                         <td className="px-4 py-1 text-campo-800">{c.cantidad.toFixed(2)} {c.unidad}</td>
+                        <td className="px-4 py-1 text-campo-800">
+                          {c.hectareas > 0 ? `${(c.cantidad / c.hectareas).toFixed(2)} ${c.unidad}/ha` : "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

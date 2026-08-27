@@ -5,7 +5,7 @@ type NodoProducto = { nombre: string; cantidad: number; unidad: string };
 type NodoCuadro1 = { nombre: string; hectareas?: number; productos: NodoProducto[] };
 type NodoCampo1 = { nombre: string; cuadros: NodoCuadro1[] };
 
-type NodoCuadro2 = { nombre: string; cantidad: number; unidad: string };
+type NodoCuadro2 = { nombre: string; hectareas?: number; cantidad: number; unidad: string };
 type NodoProducto2 = { nombre: string; total: number; cuadros: NodoCuadro2[] };
 type NodoCampo2 = { nombre: string; productos: NodoProducto2[] };
 
@@ -123,8 +123,13 @@ export function generarPdfReporteAgroquimicos({
       autoTable(doc, {
         startY: y,
         margin: { left: 20 },
-        head: [["Cuadro", "Cantidad"]],
-        body: producto.cuadros.map((c) => [c.nombre, `${c.cantidad.toFixed(2)} ${c.unidad}`]),
+        head: [["Cuadro", "Hectareas", "Cantidad", "Cantidad/ha"]],
+        body: producto.cuadros.map((c) => [
+          c.nombre,
+          c.hectareas && c.hectareas > 0 ? `${c.hectareas} ha` : "-",
+          `${c.cantidad.toFixed(2)} ${c.unidad}`,
+          c.hectareas && c.hectareas > 0 ? `${(c.cantidad / c.hectareas).toFixed(2)} ${c.unidad}/ha` : "-",
+        ]),
         styles: { fontSize: 7 },
         headStyles: { fillColor: [156, 194, 172] },
       });
