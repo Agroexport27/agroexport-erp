@@ -68,8 +68,14 @@ export default function CorteDiarioPage() {
       .from("distribuidores")
       .select("id, nombre")
       .eq("activo", true)
-      .order("nombre")
-      .then(({ data }) => setDistribuidores((data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }))));
+      .order("orden", { ascending: true, nullsFirst: false })
+      .then(({ data }) => {
+        const opciones = (data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }));
+        // Nacional siempre al final, sin importar su numero de orden
+        const sinNacional = opciones.filter((o: any) => o.label !== "Nacional");
+        const nacional = opciones.filter((o: any) => o.label === "Nacional");
+        setDistribuidores([...sinNacional, ...nacional]);
+      });
 
     supabase
       .from("calibre_distribuidor_override")
