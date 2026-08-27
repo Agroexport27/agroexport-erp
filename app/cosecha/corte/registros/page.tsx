@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelCorte } from "@/lib/excel/corte";
 import { generarPdfCorte } from "@/lib/pdf/corte";
@@ -13,6 +13,8 @@ export default function RegistrosCortePage() {
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [distribuidores, setDistribuidores] = useState<Opcion[]>([]);
   const [registros, setRegistros] = useState<any[]>([]);
+  const [calibres, setCalibres] = useState<any[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, Record<string, number>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +24,9 @@ export default function RegistrosCortePage() {
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
   const [distribuidorId, setDistribuidorId] = useState("");
+
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [edicionCantidad, setEdicionCantidad] = useState("");
 
   useEffect(() => {
     supabase
@@ -35,6 +40,21 @@ export default function RegistrosCortePage() {
       .select("id, nombre")
       .order("nombre")
       .then(({ data }) => setDistribuidores((data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }))));
+    supabase
+      .from("calibres")
+      .select("id, cajas_por_pallet, cajas_por_bin")
+      .then(({ data }) => setCalibres(data ?? []));
+    supabase
+      .from("calibre_distribuidor_override")
+      .select("calibre_id, distribuidor_id, cajas_por_pallet")
+      .then(({ data }) => {
+        const mapa: Record<string, Record<string, number>> = {};
+        for (const o of (data ?? []) as any[]) {
+          mapa[o.distribuidor_id] = mapa[o.distribuidor_id] ?? {};
+          mapa[o.distribuidor_id][o.calibre_id] = Number(o.cajas_por_pallet);
+        }
+        setOverrides(mapa);
+      });
   }, []);
 
   async function consultar() {
@@ -43,7 +63,7 @@ export default function RegistrosCortePage() {
     let query = supabase
       .from("corte_diario")
       .select(
-        "id, fecha, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
+        "id, fecha, campo_id, distribuidor_id, calibre_id, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin)
@@ -62,6 +82,36 @@ export default function RegistrosCortePage() {
     consultar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function tasaEfectiva(distribuidorId: string, calibreId: string, tipoUnidad: string): number {
+    const cal = calibres.find((c) => c.id === calibreId);
+    if (tipoUnidad === "bins") return Number(cal?.cajas_por_bin ?? 0);
+    return overrides[distribuidorId]?.[calibreId] ?? Number(cal?.cajas_por_pallet ?? 0);
+  }
+
+  function empezarEdicion(r: any) {
+    setEditandoId(r.id);
+    setEdicionCantidad(String(r.cantidad_unidades));
+  }
+
+  async function guardarEdicion(r: any) {
+    const cantidad = parseFloat(edicionCantidad);
+    if (isNaN(cantidad) || cantidad < 0) {
+      setError("Cantidad inválida.");
+      return;
+    }
+    const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
+    const { error } = await supabase
+      .from("corte_diario")
+      .update({ cantidad_unidades: cantidad, cajas: cantidad * tasa })
+      .eq("id", r.id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setEditandoId(null);
+    consultar();
+  }
 
   async function eliminar(id: string) {
     if (!confirm("¿Eliminar este renglón de corte? No se puede deshacer.")) return;
@@ -90,10 +140,24 @@ export default function RegistrosCortePage() {
     }));
   }
 
+  const grupos = useMemo(() => {
+    const mapa = new Map<string, any>();
+    for (const r of registros) {
+      const key = `${r.fecha}__${r.campos?.nombre ?? ""}`;
+      const g =
+        mapa.get(key) ??
+        { fecha: r.fecha, campo: r.campos?.nombre ?? "", filas: [] as any[], totalCajas: 0 };
+      g.filas.push(r);
+      g.totalCajas += Number(r.cajas ?? 0);
+      mapa.set(key, g);
+    }
+    return Array.from(mapa.values()).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  }, [registros]);
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Registros de corte</h1>
-      <p className="mb-6 text-sm text-campo-600">Historial de todo lo capturado en Corte diario.</p>
+      <p className="mb-6 text-sm text-campo-600">Historial de todo lo capturado en Corte diario, agrupado por día y campo.</p>
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -146,46 +210,85 @@ export default function RegistrosCortePage() {
         <p className="text-2xl font-semibold text-campo-900">{totalCajas.toLocaleString()}</p>
       </div>
 
-      <div className="card overflow-x-auto">
-        <table className="w-full min-w-[800px] text-sm">
-          <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
-            <tr>
-              <th className="px-4 py-2">Fecha</th>
-              <th className="px-4 py-2">Campo</th>
-              <th className="px-4 py-2">Cuadro</th>
-              <th className="px-4 py-2">Distribuidor</th>
-              <th className="px-4 py-2">Calibre</th>
-              <th className="px-4 py-2">Tipo</th>
-              <th className="px-4 py-2">Unidades</th>
-              <th className="px-4 py-2">Cajas</th>
-              <th className="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={9}>Cargando...</td></tr>}
-            {!loading && registros.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={9}>Sin registros en el rango seleccionado.</td></tr>
-            )}
-            {registros.map((r: any) => (
-              <tr key={r.id} className="border-t border-campo-50">
-                <td className="px-4 py-2 text-campo-800">{r.fecha}</td>
-                <td className="px-4 py-2 text-campo-800">{r.campos?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.cuadros?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.distribuidores?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{r.calibres?.nombre}</td>
-                <td className="px-4 py-2 text-campo-600 capitalize">{r.tipo_unidad}</td>
-                <td className="px-4 py-2 text-campo-800">{r.cantidad_unidades}</td>
-                <td className="px-4 py-2 text-campo-800">{Number(r.cajas).toFixed(0)}</td>
-                <td className="px-4 py-2 text-right">
-                  <button className="btn-danger" onClick={() => eliminar(r.id)}>
-                    Eliminar
-                  </button>
-                </td>
+      {loading && <p className="text-sm text-campo-400">Cargando...</p>}
+      {!loading && grupos.length === 0 && (
+        <p className="text-sm text-campo-400">Sin registros en el rango seleccionado.</p>
+      )}
+
+      {grupos.map((g) => (
+        <details key={`${g.fecha}__${g.campo}`} className="card mb-2 overflow-hidden">
+          <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
+            <span className="text-sm font-medium text-campo-800">
+              {g.fecha} — {g.campo}
+              <span className="ml-2 font-normal text-campo-500">
+                ({g.filas.length} renglón(es) · {g.totalCajas.toFixed(0)} cajas)
+              </span>
+            </span>
+          </summary>
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs font-medium text-campo-500">
+              <tr>
+                <th className="px-4 py-1">Cuadro</th>
+                <th className="px-4 py-1">Distribuidor</th>
+                <th className="px-4 py-1">Calibre</th>
+                <th className="px-4 py-1">Tipo</th>
+                <th className="px-4 py-1">Unidades</th>
+                <th className="px-4 py-1">Cajas</th>
+                <th className="px-4 py-1"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {g.filas.map((r: any) =>
+                editandoId === r.id ? (
+                  <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
+                    <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
+                    <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
+                    <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
+                    <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
+                    <td className="px-2 py-1">
+                      <input
+                        type="number"
+                        step="any"
+                        className="input w-20"
+                        value={edicionCantidad}
+                        onChange={(e) => setEdicionCantidad(e.target.value)}
+                      />
+                    </td>
+                    <td className="px-4 py-1 text-campo-600">
+                      {(parseFloat(edicionCantidad || "0") * tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad)).toFixed(0)}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1 text-right">
+                      <button className="btn-secondary mr-1" onClick={() => guardarEdicion(r)}>
+                        Guardar
+                      </button>
+                      <button className="btn-secondary" onClick={() => setEditandoId(null)}>
+                        Cancelar
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={r.id} className="border-t border-campo-50">
+                    <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
+                    <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
+                    <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
+                    <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
+                    <td className="px-4 py-1 text-campo-800">{r.cantidad_unidades}</td>
+                    <td className="px-4 py-1 text-campo-800">{Number(r.cajas).toFixed(0)}</td>
+                    <td className="whitespace-nowrap px-4 py-1 text-right">
+                      <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
+                        Editar
+                      </button>
+                      <button className="btn-danger" onClick={() => eliminar(r.id)}>
+                        Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                )
+              )}
+            </tbody>
+          </table>
+        </details>
+      ))}
     </div>
   );
 }
