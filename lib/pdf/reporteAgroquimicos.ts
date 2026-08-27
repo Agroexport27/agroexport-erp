@@ -10,7 +10,7 @@ type NodoProducto2 = { nombre: string; total: number; cuadros: NodoCuadro2[] };
 type NodoCampo2 = { nombre: string; productos: NodoProducto2[] };
 
 type FilaTotalProducto = {
-  producto: string;
+  nombre: string;
   cantidad: number;
   unidad: string;
   hectareas: number;
@@ -53,7 +53,7 @@ export function generarPdfReporteAgroquimicos({
     startY: y + 3,
     head: [["Producto", "Total", "Hectareas", "Cantidad/ha"]],
     body: porProducto.map((p) => [
-      p.producto,
+      p.nombre,
       `${p.cantidad.toFixed(2)} ${p.unidad}`,
       p.hectareas > 0 ? `${p.hectareas.toFixed(1)} ha` : "-",
       p.cantidadPorHa != null ? `${p.cantidadPorHa.toFixed(2)} ${p.unidad}/ha` : "-",

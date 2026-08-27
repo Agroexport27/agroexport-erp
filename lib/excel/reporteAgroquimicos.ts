@@ -1,15 +1,8 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
-type NodoProducto = { nombre: string; cantidad: number; unidad: string };
-type NodoCuadro1 = { nombre: string; hectareas?: number; productos: NodoProducto[] };
-type NodoCampo1 = { nombre: string; cuadros: NodoCuadro1[] };
-
-type NodoCuadro2 = { nombre: string; cantidad: number; unidad: string };
-type NodoProducto2 = { nombre: string; total: number; cuadros: NodoCuadro2[] };
-type NodoCampo2 = { nombre: string; productos: NodoProducto2[] };
-
-type FilaTotalProducto = {
+export type FilaCuadroProducto = { campo: string; cuadro: string; producto: string; cantidad: number; unidad: string };
+export type FilaProductoCuadro = { campo: string; producto: string; cuadro: string; cantidad: number; unidad: string };
+export type FilaTotalProducto = {
   nombre: string;
   cantidad: number;
   unidad: string;
@@ -17,121 +10,51 @@ type FilaTotalProducto = {
   cantidadPorHa: number | null;
 };
 
-const ALTO_PAGINA = 280;
-
-export function generarPdfReporteAgroquimicos({
+export function generarExcelReporteAgroquimicos({
   rango,
   porProducto,
-  jerarquiaCuadroProducto,
-  jerarquiaProductoCuadro,
+  cuadroProducto,
+  productoCuadro,
 }: {
   rango: string;
   porProducto: FilaTotalProducto[];
-  jerarquiaCuadroProducto: NodoCampo1[];
-  jerarquiaProductoCuadro: NodoCampo2[];
+  cuadroProducto: FilaCuadroProducto[];
+  productoCuadro: FilaProductoCuadro[];
 }) {
-  const doc = new jsPDF();
-  let y = 16;
+  const libro = XLSX.utils.book_new();
 
-  function saltoDePaginaSiHaceFalta(margen = 20) {
-    if (y > ALTO_PAGINA - margen) {
-      doc.addPage();
-      y = 16;
-    }
-  }
+  const hojaTotal = XLSX.utils.json_to_sheet(
+    porProducto.map((f) => ({
+      Producto: f.nombre,
+      Total: f.cantidad,
+      Unidad: f.unidad,
+      Hectáreas: f.hectareas,
+      "Cantidad/ha": f.cantidadPorHa ?? "",
+    }))
+  );
+  XLSX.utils.book_append_sheet(libro, hojaTotal, "Acumulado por producto");
 
-  doc.setFontSize(14);
-  doc.text("Agroexport de Sonora", 14, y);
-  y += 7;
-  doc.setFontSize(11);
-  doc.text(`Reporte de agroquimicos (${rango})`, 14, y);
-  y += 10;
+  const hoja1 = XLSX.utils.json_to_sheet(
+    cuadroProducto.map((f) => ({
+      Campo: f.campo,
+      Cuadro: f.cuadro,
+      Producto: f.producto,
+      Cantidad: f.cantidad,
+      Unidad: f.unidad,
+    }))
+  );
+  XLSX.utils.book_append_sheet(libro, hoja1, "Campo-Cuadro-Producto");
 
-  doc.setFontSize(12);
-  doc.text("Acumulado por producto", 14, y);
-  autoTable(doc, {
-    startY: y + 3,
-    head: [["Producto", "Total", "Hectareas", "Cantidad/ha"]],
-    body: porProducto.map((p) => [
-      p.nombre,
-      `${p.cantidad.toFixed(2)} ${p.unidad}`,
-      p.hectareas > 0 ? `${p.hectareas.toFixed(1)} ha` : "-",
-      p.cantidadPorHa != null ? `${p.cantidadPorHa.toFixed(2)} ${p.unidad}/ha` : "-",
-    ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [92, 140, 58] },
-  });
-  y = (doc as any).lastAutoTable.finalY + 10;
-  doc.addPage();
-  y = 16;
+  const hoja2 = XLSX.utils.json_to_sheet(
+    productoCuadro.map((f) => ({
+      Campo: f.campo,
+      Producto: f.producto,
+      Cuadro: f.cuadro,
+      Cantidad: f.cantidad,
+      Unidad: f.unidad,
+    }))
+  );
+  XLSX.utils.book_append_sheet(libro, hoja2, "Campo-Producto-Cuadro");
 
-  doc.setFontSize(12);
-  doc.text("Desglose por campo: Cuadros > Productos", 14, y);
-  y += 8;
-
-  for (const campo of jerarquiaCuadroProducto) {
-    saltoDePaginaSiHaceFalta(16);
-    doc.setFillColor(224, 236, 211);
-    doc.rect(12, y - 4, 186, 7, "F");
-    doc.setFontSize(9.5);
-    doc.setTextColor(41, 58, 29);
-    doc.text(campo.nombre, 14, y);
-    doc.setTextColor(0, 0, 0);
-    y += 8;
-
-    for (const cuadro of campo.cuadros) {
-      saltoDePaginaSiHaceFalta(24);
-      doc.setFontSize(8.5);
-      doc.text(`  ${cuadro.nombre}`, 14, y);
-      y += 3;
-
-      autoTable(doc, {
-        startY: y,
-        margin: { left: 20 },
-        head: [["Producto", "Cantidad"]],
-        body: cuadro.productos.map((p) => [p.nombre, `${p.cantidad.toFixed(2)} ${p.unidad}`]),
-        styles: { fontSize: 7 },
-        headStyles: { fillColor: [156, 194, 172] },
-      });
-      y = (doc as any).lastAutoTable.finalY + 5;
-    }
-    y += 3;
-  }
-
-  doc.addPage();
-  y = 16;
-  doc.setFontSize(12);
-  doc.text("Desglose por campo: Productos > Cuadros", 14, y);
-  y += 8;
-
-  for (const campo of jerarquiaProductoCuadro) {
-    saltoDePaginaSiHaceFalta(16);
-    doc.setFillColor(224, 236, 211);
-    doc.rect(12, y - 4, 186, 7, "F");
-    doc.setFontSize(9.5);
-    doc.setTextColor(41, 58, 29);
-    doc.text(campo.nombre, 14, y);
-    doc.setTextColor(0, 0, 0);
-    y += 8;
-
-    for (const producto of campo.productos) {
-      saltoDePaginaSiHaceFalta(24);
-      doc.setFontSize(8.5);
-      doc.text(`  ${producto.nombre} — Total: ${producto.total.toFixed(2)}`, 14, y);
-      y += 3;
-
-      autoTable(doc, {
-        startY: y,
-        margin: { left: 20 },
-        head: [["Cuadro", "Cantidad"]],
-        body: producto.cuadros.map((c) => [c.nombre, `${c.cantidad.toFixed(2)} ${c.unidad}`]),
-        styles: { fontSize: 7 },
-        headStyles: { fillColor: [156, 194, 172] },
-      });
-      y = (doc as any).lastAutoTable.finalY + 5;
-    }
-    y += 3;
-  }
-
-  doc.save(`reporte_agroquimicos_${rango}.pdf`);
+  XLSX.writeFile(libro, `reporte_agroquimicos_${rango}.xlsx`);
 }
