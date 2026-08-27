@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelCorte } from "@/lib/excel/corte";
 import { generarPdfCorte } from "@/lib/pdf/corte";
+import { generarExcelResumenCorte } from "@/lib/excel/resumenCorte";
+import { generarPdfResumenCorte, generarPdfResumenCorteUnDistribuidor } from "@/lib/pdf/resumenCorte";
 
 type Opcion = { id: string; label: string };
 
@@ -42,7 +44,8 @@ export default function RegistrosCortePage() {
       .then(({ data }) => setDistribuidores((data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }))));
     supabase
       .from("calibres")
-      .select("id, cajas_por_pallet, cajas_por_bin")
+      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden")
+      .order("orden")
       .then(({ data }) => setCalibres(data ?? []));
     supabase
       .from("calibre_distribuidor_override")
@@ -154,6 +157,38 @@ export default function RegistrosCortePage() {
     return Array.from(mapa.values()).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
   }, [registros]);
 
+  const calibresCaja = useMemo(
+    () => calibres.filter((c) => c.cajas_por_pallet != null).sort((a, b) => a.orden - b.orden).map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
+    [calibres]
+  );
+  const calibresBin = useMemo(
+    () => calibres.filter((c) => c.cajas_por_bin != null).sort((a, b) => a.orden - b.orden).map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
+    [calibres]
+  );
+
+  function detalleDeGrupo(g: any) {
+    return g.filas.map((r: any) => ({
+      cuadro: r.cuadros?.nombre ?? "",
+      distribuidor: r.distribuidores?.nombre ?? "",
+      calibreId: r.calibre_id,
+      calibreNombre: r.calibres?.nombre ?? "",
+      tipoUnidad: r.tipo_unidad,
+      unidades: Number(r.cantidad_unidades),
+      cajas: Number(r.cajas),
+    }));
+  }
+
+  function descargarResumenExcel(g: any) {
+    generarExcelResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
+  }
+  function descargarResumenPdf(g: any) {
+    generarPdfResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
+  }
+  function descargarPdfDistribuidor(g: any, distribuidor: string) {
+    const filasDist = detalleDeGrupo(g).filter((f: any) => f.distribuidor === distribuidor);
+    generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja, calibresBin });
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Registros de corte</h1>
@@ -225,6 +260,23 @@ export default function RegistrosCortePage() {
               </span>
             </span>
           </summary>
+          <div className="flex flex-wrap gap-2 border-b border-campo-100 bg-white px-4 py-2">
+            <button className="btn-secondary text-xs" onClick={() => descargarResumenExcel(g)}>
+              Resumen del día (Excel)
+            </button>
+            <button className="btn-secondary text-xs" onClick={() => descargarResumenPdf(g)}>
+              Resumen del día (PDF, todos)
+            </button>
+            {Array.from(new Set(g.filas.map((r: any) => r.distribuidores?.nombre))).map((dist: any) => (
+              <button
+                key={dist}
+                className="btn-secondary text-xs"
+                onClick={() => descargarPdfDistribuidor(g, dist)}
+              >
+                PDF — {dist}
+              </button>
+            ))}
+          </div>
           <table className="w-full text-sm">
             <thead className="text-left text-xs font-medium text-campo-500">
               <tr>
