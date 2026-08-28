@@ -43,7 +43,7 @@ export default function RegistrosEmbarquesPage() {
     let query = supabase
       .from("remision_envio")
       .select(
-        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre))"
+        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadros(nombre))"
       )
       .gte("fecha_empaque", fechaInicio)
       .lte("fecha_empaque", fechaFin)
@@ -88,7 +88,10 @@ export default function RegistrosEmbarquesPage() {
       (r.remision_detalle ?? []).map((d: any) => ({
         fecha: r.fecha_empaque,
         campo: r.campos?.nombre ?? "",
-        cuadro: r.cuadros?.nombre ?? "",
+        cuadro:
+          (r.remision_envio_cuadro ?? []).map((x: any) => x.cuadros?.nombre).filter(Boolean).join(", ") ||
+          r.cuadros?.nombre ||
+          "",
         distribuidor: r.distribuidores?.nombre ?? "",
         manifiesto: r.manifiesto ?? "",
         empaque: r.empaque ?? "",
@@ -187,7 +190,11 @@ export default function RegistrosEmbarquesPage() {
                 <tr key={r.id} className="border-t border-campo-50">
                   <td className="px-4 py-2 text-campo-800">{r.fecha_empaque}</td>
                   <td className="px-4 py-2 text-campo-800">{r.campos?.nombre}</td>
-                  <td className="px-4 py-2 text-campo-800">{r.cuadros?.nombre ?? "—"}</td>
+                  <td className="px-4 py-2 text-campo-800">
+                    {(r.remision_envio_cuadro ?? []).map((x: any) => x.cuadros?.nombre).filter(Boolean).join(", ") ||
+                      r.cuadros?.nombre ||
+                      "—"}
+                  </td>
                   <td className="px-4 py-2 text-campo-800">{r.distribuidores?.nombre}</td>
                   <td className="px-4 py-2 text-campo-800">{r.manifiesto ?? "—"}</td>
                   <td className="px-4 py-2 text-campo-600">{r.empaque}</td>
