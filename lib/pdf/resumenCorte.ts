@@ -150,7 +150,7 @@ export function generarPdfResumenCorte({
     dibujarTablaDistribuidor(doc, campo, fecha, dist, filas.filter((f) => f.distribuidor === dist), calibresCaja, calibresBin);
   }
 
-  doc.save(`corte_${campo.replace(/\s+/g, "_")}_${fecha}.pdf`);
+  doc.save(`corte_${campo.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
 }
 
 // Un PDF individual para un solo distribuidor (para mandarle nada mas
@@ -172,5 +172,5 @@ export function generarPdfResumenCorteUnDistribuidor({
 }) {
   const doc = new jsPDF({ orientation: "landscape" });
   dibujarTablaDistribuidor(doc, campo, fecha, distribuidor, filas, calibresCaja, calibresBin);
-  doc.save(`corte_${distribuidor.replace(/\s+/g, "_")}_${campo.replace(/\s+/g, "_")}_${fecha}.pdf`);
+  doc.save(`corte_${distribuidor.replace(/\s+/g, "_")}_${campo.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
 }

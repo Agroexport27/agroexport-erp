@@ -58,7 +58,9 @@ export default function CorteDiarioPage() {
       .select("id, nombre")
       .order("nombre")
       .then(({ data }) => {
-        const opciones = (data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }));
+        const opciones = (data ?? [])
+          .filter((c: any) => c.nombre !== "Solarizado")
+          .map((c: any) => ({ id: c.id, label: c.nombre }));
         setCultivos(opciones);
         const mini = opciones.find((c: any) => c.label.toLowerCase().includes("sandía mini") || c.label.toLowerCase().includes("sandia mini"));
         if (mini) setCultivoId(mini.id);
@@ -102,22 +104,39 @@ export default function CorteDiarioPage() {
 
   useEffect(() => {
     if (!cultivoId) return;
-    supabase
-      .from("calibres")
-      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden")
-      .eq("cultivo_id", cultivoId)
-      .order("orden")
-      .then(({ data }) => {
-        setCalibres(
-          (data ?? []).map((c: any) => ({
-            id: c.id,
-            nombre: c.nombre,
-            cajasPorPallet: c.cajas_por_pallet != null ? Number(c.cajas_por_pallet) : null,
-            cajasPorBin: c.cajas_por_bin != null ? Number(c.cajas_por_bin) : null,
-            orden: c.orden ?? 999,
-          }))
-        );
-      });
+    const nombreCultivoActual = cultivos.find((c) => c.id === cultivoId)?.label?.toLowerCase() ?? "";
+    const esVarianteSandiaMini =
+      nombreCultivoActual.includes("sandía mini") || nombreCultivoActual.includes("sandia mini");
+
+    // Sandia Mini Amarilla usa exactamente el mismo catalogo de
+    // calibres que Sandia Mini -- si es cualquier variante, jala los
+    // calibres de "Sandía Mini" (la base), no los de su propio cultivo.
+    const cargarCalibresDe = async () => {
+      let cultivoIdParaCalibres = cultivoId;
+      if (esVarianteSandiaMini) {
+        const { data: base } = await supabase
+          .from("cultivos")
+          .select("id")
+          .eq("nombre", "Sandía Mini")
+          .maybeSingle();
+        if (base) cultivoIdParaCalibres = base.id;
+      }
+      const { data } = await supabase
+        .from("calibres")
+        .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden")
+        .eq("cultivo_id", cultivoIdParaCalibres)
+        .order("orden");
+      setCalibres(
+        (data ?? []).map((c: any) => ({
+          id: c.id,
+          nombre: c.nombre,
+          cajasPorPallet: c.cajas_por_pallet != null ? Number(c.cajas_por_pallet) : null,
+          cajasPorBin: c.cajas_por_bin != null ? Number(c.cajas_por_bin) : null,
+          orden: c.orden ?? 999,
+        }))
+      );
+    };
+    cargarCalibresDe();
   }, [cultivoId]);
 
   useEffect(() => {
