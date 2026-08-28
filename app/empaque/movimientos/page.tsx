@@ -48,7 +48,7 @@ export default function MovimientosMaterialesPage() {
     const { data, error } = await supabase
       .from("movimiento_material_empaque")
       .select("id, fecha, tipo, cantidad, observaciones, origen_tipo, campos(nombre), materiales_empaque(nombre)")
-      .order("created_at", { ascending: false })
+      .order("fecha", { ascending: false })
       .limit(30);
     if (error) setError(error.message);
     else setRecientes(data ?? []);
