@@ -40,6 +40,7 @@ export default function CorteDiarioPage() {
   const [overrides, setOverrides] = useState<Record<string, Record<string, number>>>({}); // distribuidorId -> calibreId -> cajasPorPallet
 
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [clasificacion, setClasificacion] = useState<"Convencional" | "Orgánico">("Convencional");
   const [renglonesPorDist, setRenglonesPorDist] = useState<Record<string, Renglon[]>>({});
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,20 +254,74 @@ export default function CorteDiarioPage() {
     }
 
     const { error } = await supabase.from("corte_diario").insert(filas);
-    setGuardando(false);
     if (error) {
+      setGuardando(false);
       setError(error.message);
       return;
     }
+
+    // Descuenta material de empaque automatico, segun la receta de cada
+    // distribuidor + calibre. Amarilla siempre se trata como su propia
+    // clasificacion; para los demas cultivos se usa lo que elegiste
+    // arriba (Convencional/Orgánico).
+    const nombreCultivoActual = cultivos.find((c) => c.id === cultivoId)?.label ?? "";
+    const clasificacionEfectiva = nombreCultivoActual.toLowerCase().includes("amarilla")
+      ? "Amarilla"
+      : clasificacion;
+
+    const filasConMaterial = filas; // tanto pallet como bins pueden tener receta
+    if (filasConMaterial.length > 0) {
+      const { data: tiposEmpaque } = await supabase
+        .from("tipo_empaque")
+        .select("id, distribuidor_id, calibre_id, receta_empaque(material_id, cantidad_por_caja)")
+        .eq("clasificacion", clasificacionEfectiva);
+
+      const consumoPorMaterial: Record<string, number> = {};
+      let algunoSinReceta = false;
+      for (const f of filasConMaterial) {
+        const tipo = (tiposEmpaque ?? []).find(
+          (t: any) => t.distribuidor_id === f.distribuidor_id && t.calibre_id === f.calibre_id
+        );
+        if (!tipo) {
+          algunoSinReceta = true;
+          continue;
+        }
+        for (const r of (tipo as any).receta_empaque ?? []) {
+          consumoPorMaterial[r.material_id] =
+            (consumoPorMaterial[r.material_id] ?? 0) + r.cantidad_por_caja * f.cajas;
+        }
+      }
+
+      const movimientos = Object.entries(consumoPorMaterial).map(([materialId, cantidad]) => ({
+        material_id: materialId,
+        campo_id: campoId,
+        fecha,
+        tipo: "salida",
+        cantidad,
+        observaciones: "Consumo automático por Corte diario",
+        origen_tipo: "corte_diario",
+      }));
+      if (movimientos.length > 0) {
+        await supabase.from("movimiento_material_empaque").insert(movimientos);
+      }
+      if (algunoSinReceta) {
+        setError(
+          "El corte se guardó, pero algún calibre/distribuidor no tiene receta de materiales todavía — revísalo en Materiales."
+        );
+      }
+    }
+
+    setGuardando(false);
     setMensajeExito(`Corte guardado: ${filas.length} renglón(es), ${granTotalCajas.toFixed(0)} cajas en total.`);
     const inicial: Record<string, Renglon[]> = {};
     for (const d of distribuidores) inicial[d.id] = [nuevoRenglon()];
     setRenglonesPorDist(inicial);
+    setClasificacion("Convencional");
     setTimeout(() => setMensajeExito(null), 6000);
   }
 
   const cultivoActual = cultivos.find((c) => c.id === cultivoId);
-  const esCultivoSoportado = cultivoActual?.label?.toLowerCase().includes("sandía mini") || cultivoActual?.label?.toLowerCase().includes("sandia mini");
+  const esCultivoSoportado = calibres.length > 0;
 
   return (
     <div>
@@ -308,6 +363,13 @@ export default function CorteDiarioPage() {
             {cultivos.map((c) => (
               <option key={c.id} value={c.id}>{c.label}</option>
             ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Empaque</label>
+          <select className="input" value={clasificacion} onChange={(e) => setClasificacion(e.target.value as any)}>
+            <option value="Convencional">Convencional</option>
+            <option value="Orgánico">Orgánico</option>
           </select>
         </div>
         <div className="flex items-end">

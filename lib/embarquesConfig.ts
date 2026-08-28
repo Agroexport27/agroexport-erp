@@ -37,6 +37,10 @@ export const CONFIG_EMBARQUES: Record<string, ConfigDistribuidor> = {
     cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "FT 8C", "4 D"],
     bins: BINS_UNIFICADOS,
   },
+  Nacional: {
+    cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "FT 8C", "4 D"],
+    bins: BINS_UNIFICADOS,
+  },
 };
 
 export const EMPAQUE_OPCIONES = ["Convencional", "Orgánico", "Regular", "REOrgánico", "Amarilla"];
