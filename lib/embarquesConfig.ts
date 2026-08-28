@@ -10,37 +10,32 @@ export type ConfigDistribuidor = {
   bins: ColumnaBin[];
 };
 
+const BINS_UNIFICADOS = [
+  { etiqueta: "Bins 120 (mini)" },
+  { etiqueta: "Bins 140 (mini)" },
+  { etiqueta: "Bins 28 (regular)" },
+  { etiqueta: "Bins 36 (regular)" },
+  { etiqueta: "Bins 45 (regular)" },
+  { etiqueta: "Bins 60 (regular)" },
+  { etiqueta: "Bins 80 (regular)" },
+];
+
 export const CONFIG_EMBARQUES: Record<string, ConfigDistribuidor> = {
   Dulcinea: {
     cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "FT 8C", "4 D"],
-    bins: [
-      { etiqueta: "Bins 120 (mini)" },
-      { etiqueta: "Bins 140 (mini)" },
-      { etiqueta: "Bins 36 (regular)" },
-      { etiqueta: "Bins 45 (regular)" },
-      { etiqueta: "Bins 60 (regular)" },
-    ],
+    bins: BINS_UNIFICADOS,
   },
   Giumarra: {
     cajas: ["6", "6 J", "8", "9", "M 9", "11", "4 D"],
-    bins: [
-      { etiqueta: "Bins 36 (regular)" },
-      { etiqueta: "Bins 45 (regular)" },
-      { etiqueta: "Bins 60 (regular)" },
-    ],
+    bins: BINS_UNIFICADOS,
   },
   "Robinson Fresh": {
     cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "FT 8C", "4 D"],
-    bins: [],
+    bins: BINS_UNIFICADOS,
   },
   "Divine Flavor": {
     cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "FT 8C", "4 D"],
-    bins: [
-      { etiqueta: "Bins 36 (regular)" },
-      { etiqueta: "Bins 45 (regular)" },
-      { etiqueta: "Bins 60 (regular)" },
-      { etiqueta: "Bins 75 (regular)" },
-    ],
+    bins: BINS_UNIFICADOS,
   },
 };
 

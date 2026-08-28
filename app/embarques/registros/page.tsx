@@ -12,6 +12,7 @@ export default function RegistrosEmbarquesPage() {
 
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [distribuidores, setDistribuidores] = useState<Opcion[]>([]);
+  const [cultivos, setCultivos] = useState<Opcion[]>([]);
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +23,7 @@ export default function RegistrosEmbarquesPage() {
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
   const [distribuidorId, setDistribuidorId] = useState("");
+  const [cultivoId, setCultivoId] = useState("");
 
   useEffect(() => {
     supabase
@@ -35,6 +37,12 @@ export default function RegistrosEmbarquesPage() {
       .select("id, nombre")
       .order("nombre")
       .then(({ data }) => setDistribuidores((data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }))));
+    supabase
+      .from("cultivos")
+      .select("id, nombre")
+      .neq("nombre", "Solarizado")
+      .order("nombre")
+      .then(({ data }) => setCultivos((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
   }, []);
 
   async function consultar() {
@@ -51,6 +59,7 @@ export default function RegistrosEmbarquesPage() {
 
     if (campoId) query = query.eq("campo_id", campoId);
     if (distribuidorId) query = query.eq("distribuidor_id", distribuidorId);
+    if (cultivoId) query = query.eq("cultivo_id", cultivoId);
 
     const { data, error } = await query.limit(2000);
     if (error) setError(error.message);
@@ -113,7 +122,7 @@ export default function RegistrosEmbarquesPage() {
         </div>
       )}
 
-      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-5">
+      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-6">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Desde</label>
           <input type="date" className="input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
@@ -137,6 +146,15 @@ export default function RegistrosEmbarquesPage() {
             <option value="">Todos</option>
             {distribuidores.map((d) => (
               <option key={d.id} value={d.id}>{d.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cultivo</label>
+          <select className="input" value={cultivoId} onChange={(e) => setCultivoId(e.target.value)}>
+            <option value="">Todos</option>
+            {cultivos.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
             ))}
           </select>
         </div>

@@ -16,6 +16,8 @@ export default function EmbarquesPage() {
   const [cuadroIds, setCuadroIds] = useState<string[]>([]);
   const [distribuidores, setDistribuidores] = useState<Opcion[]>([]);
   const [distribuidorNombre, setDistribuidorNombre] = useState("");
+  const [cultivos, setCultivos] = useState<Opcion[]>([]);
+  const [cultivoId, setCultivoId] = useState("");
   const [calibres, setCalibres] = useState<{ id: string; nombre: string }[]>([]);
 
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
@@ -54,18 +56,43 @@ export default function EmbarquesPage() {
 
     supabase
       .from("cultivos")
-      .select("id")
-      .eq("nombre", "Sandía Mini")
-      .maybeSingle()
-      .then(async ({ data: cultivo }) => {
-        if (!cultivo) return;
-        const { data } = await supabase
-          .from("calibres")
-          .select("id, nombre")
-          .eq("cultivo_id", cultivo.id);
-        setCalibres(data ?? []);
+      .select("id, nombre")
+      .neq("nombre", "Solarizado")
+      .order("nombre")
+      .then(({ data }) => {
+        const opciones = (data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }));
+        setCultivos(opciones);
+        const mini = opciones.find((c: any) => c.label === "Sandía Mini");
+        if (mini) setCultivoId(mini.id);
+        else if (opciones.length > 0) setCultivoId(opciones[0].id);
       });
   }, []);
+
+  // Los calibres dependen del cultivo elegido. Cualquier variante de
+  // "Sandía Mini" (ej. Amarilla) usa el mismo catalogo que la base.
+  useEffect(() => {
+    if (!cultivoId) return;
+    const nombreCultivo = cultivos.find((c) => c.id === cultivoId)?.label?.toLowerCase() ?? "";
+    const esVarianteSandiaMini = nombreCultivo.includes("sandía mini") || nombreCultivo.includes("sandia mini");
+
+    const cargar = async () => {
+      let idParaCalibres = cultivoId;
+      if (esVarianteSandiaMini) {
+        const { data: base } = await supabase
+          .from("cultivos")
+          .select("id")
+          .eq("nombre", "Sandía Mini")
+          .maybeSingle();
+        if (base) idParaCalibres = base.id;
+      }
+      const { data } = await supabase
+        .from("calibres")
+        .select("id, nombre")
+        .eq("cultivo_id", idParaCalibres);
+      setCalibres(data ?? []);
+    };
+    cargar();
+  }, [cultivoId, cultivos]);
 
   useEffect(() => {
     if (!campoId) return;
@@ -107,8 +134,8 @@ export default function EmbarquesPage() {
   );
 
   async function guardar() {
-    if (!campoId || !distribuidorNombre || !config) {
-      setError("Selecciona campo y distribuidor.");
+    if (!campoId || !distribuidorNombre || !cultivoId || !config) {
+      setError("Selecciona campo, cultivo y distribuidor.");
       return;
     }
     if (totalCajas === 0 && totalBins === 0) {
@@ -128,6 +155,7 @@ export default function EmbarquesPage() {
         cuadro_id: cuadroIds[0] ?? null,
         caja_transporte: cajaTransporte || null,
         campo_id: campoId,
+        cultivo_id: cultivoId || null,
         empaque,
       })
       .select("id")
@@ -220,6 +248,15 @@ export default function EmbarquesPage() {
               <option key={d.id} value={d.label} disabled={!CONFIG_EMBARQUES[d.label]}>
                 {d.label}{!CONFIG_EMBARQUES[d.label] ? " (próximamente)" : ""}
               </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cultivo</label>
+          <select className="input" value={cultivoId} onChange={(e) => setCultivoId(e.target.value)}>
+            <option value="">Selecciona...</option>
+            {cultivos.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
             ))}
           </select>
         </div>
