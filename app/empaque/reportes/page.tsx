@@ -45,11 +45,10 @@ export default function ReportesMaterialesPage() {
       .sort((a, b) => b.cantidad - a.cantidad);
   }, [registros]);
 
-  const totalConsumo = registros.reduce((s, r) => s + Number(r.cantidad ?? 0), 0);
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-campo-900">Reportes — Materiales</h1>
+      <h1 className="text-2xl font-semibold text-campo-900">Reportes</h1>
       <p className="mb-6 text-sm text-campo-600">Consumo de materiales (salidas), acumulado por material.</p>
 
       {error && (
@@ -70,11 +69,6 @@ export default function ReportesMaterialesPage() {
         <button className="btn-primary" onClick={consultar} disabled={loading}>
           {loading ? "Consultando..." : "Consultar"}
         </button>
-      </div>
-
-      <div className="card mb-6 p-4">
-        <p className="text-xs text-campo-500">Consumo total (todas las unidades sumadas)</p>
-        <p className="text-2xl font-semibold text-campo-900">{totalConsumo.toLocaleString()}</p>
       </div>
 
       <div className="card overflow-hidden">

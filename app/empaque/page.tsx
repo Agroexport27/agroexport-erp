@@ -1,7 +1,8 @@
 const SECCIONES = [
   { nombre: "Inventario de materiales", href: "/empaque/inventario", listo: true },
   { nombre: "Entradas y salidas", href: "/empaque/movimientos", listo: true },
-  { nombre: "Reportes de consumo", href: "/empaque/reportes", listo: true },
+  { nombre: "Movimientos (por periodo)", href: "/empaque/registros", listo: true },
+  { nombre: "Reportes", href: "/empaque/reportes", listo: true },
   { nombre: "Catálogo de materiales", href: "/empaque/materiales", listo: true },
 ];
 
