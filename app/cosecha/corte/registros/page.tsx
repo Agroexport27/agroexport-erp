@@ -189,6 +189,32 @@ export default function RegistrosCortePage() {
     generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja, calibresBin });
   }
 
+  const TAMANOS_BASE = ["6", "8", "9", "11"];
+  function tamanoDeCalibre(nombreCalibre: string): string | null {
+    const n = (nombreCalibre ?? "").trim().toUpperCase();
+    if (n === "M 9" || n === "M9") return "9";
+    if (n === "8 COS" || n === "FT 8C") return "8";
+    if (n === "6 J" || n === "6 JXL" || n === "4D COS" || n === "4 D") return "6";
+    if (TAMANOS_BASE.includes(n)) return n;
+    return null;
+  }
+  function resumenTamanos(filas: any[]) {
+    const cajasPorTamano: Record<string, number> = {};
+    let total = 0;
+    for (const f of filas) {
+      if (f.tipoUnidad !== "pallet") continue;
+      const t = tamanoDeCalibre(f.calibreNombre);
+      if (!t) continue;
+      cajasPorTamano[t] = (cajasPorTamano[t] ?? 0) + f.cajas;
+      total += f.cajas;
+    }
+    return TAMANOS_BASE.map((t) => ({
+      tamano: t,
+      cajas: cajasPorTamano[t] ?? 0,
+      porcentaje: total > 0 ? ((cajasPorTamano[t] ?? 0) / total) * 100 : 0,
+    }));
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-campo-900">Registros de corte</h1>
@@ -339,6 +365,27 @@ export default function RegistrosCortePage() {
               )}
             </tbody>
           </table>
+
+          <div className="border-t border-campo-100 px-4 py-3">
+            <p className="mb-1 text-xs font-medium text-campo-600">% por tamaño — total del día</p>
+            <div className="mb-3 flex flex-wrap gap-4 text-xs text-campo-700">
+              {resumenTamanos(detalleDeGrupo(g)).map((t) => (
+                <span key={t.tamano}>
+                  <strong>{t.tamano}:</strong> {t.cajas.toFixed(0)} cajas ({t.porcentaje.toFixed(1)}%)
+                </span>
+              ))}
+            </div>
+            {Array.from(new Set(g.filas.map((r: any) => r.distribuidores?.nombre))).map((dist: any) => (
+              <div key={dist} className="mb-1 flex flex-wrap items-center gap-4 text-xs">
+                <span className="w-32 shrink-0 font-medium text-campo-600">{dist}:</span>
+                {resumenTamanos(detalleDeGrupo(g).filter((f: any) => f.distribuidor === dist)).map((t) => (
+                  <span key={t.tamano} className="text-campo-600">
+                    {t.tamano}: {t.porcentaje.toFixed(1)}%
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
         </details>
       ))}
     </div>

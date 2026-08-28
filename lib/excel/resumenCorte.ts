@@ -12,6 +12,37 @@ export type FilaCorteDetalle = {
 
 export type CalibreCol = { id: string; nombre: string; orden: number };
 
+// Los calibres de venta se agrupan en 4 tamaños base para el % de
+// tamaño: M9 cuenta como 9; 8 COS y FT 8C cuentan como 8; 6J, 6JXL,
+// 4D Cos y 4D cuentan como 6. "Otras" no entra en el % de tamaño.
+const TAMANOS_BASE = ["6", "8", "9", "11"];
+function tamanoDeCalibre(nombreCalibre: string): string | null {
+  const n = nombreCalibre.trim().toUpperCase();
+  if (n === "M 9" || n === "M9") return "9";
+  if (n === "8 COS" || n === "FT 8C") return "8";
+  if (n === "6 J" || n === "6 JXL" || n === "4D COS" || n === "4 D") return "6";
+  if (TAMANOS_BASE.includes(n)) return n;
+  return null;
+}
+
+function construirResumenTamanos(filas: FilaCorteDetalle[]) {
+  const cajasPorTamano: Record<string, number> = {};
+  let totalConTamano = 0;
+  for (const f of filas) {
+    if (f.tipoUnidad !== "pallet") continue;
+    const tamano = tamanoDeCalibre(f.calibreNombre);
+    if (!tamano) continue;
+    cajasPorTamano[tamano] = (cajasPorTamano[tamano] ?? 0) + f.cajas;
+    totalConTamano += f.cajas;
+  }
+  return TAMANOS_BASE.map((t) => ({
+    tamano: t,
+    cajas: cajasPorTamano[t] ?? 0,
+    porcentaje: totalConTamano > 0 ? ((cajasPorTamano[t] ?? 0) / totalConTamano) * 100 : 0,
+  }));
+}
+
+
 function construirHojaDistribuidor(
   distribuidor: string,
   filas: FilaCorteDetalle[],
@@ -60,6 +91,14 @@ function construirHojaDistribuidor(
       }
       if (hayDato) filasHoja.push(filaBin);
     }
+  }
+
+  const resumenTamanos = construirResumenTamanos(filas);
+  filasHoja.push([]);
+  filasHoja.push(["% POR TAMAÑO"]);
+  filasHoja.push(["Tamaño", "Cajas", "%"]);
+  for (const t of resumenTamanos) {
+    filasHoja.push([t.tamano, t.cajas || "", `${t.porcentaje.toFixed(1)}%`]);
   }
 
   return XLSX.utils.aoa_to_sheet(filasHoja);
