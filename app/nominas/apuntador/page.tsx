@@ -459,7 +459,7 @@ export default function ApuntadorPage() {
 
 
   async function guardarTodo() {
-    const conDatosBasicos = slots.filter((s) => s.empleadoId && s.actividadId && s.tarifa);
+    const conDatosBasicos = slots.filter((s) => s.empleadoId && s.actividadId);
     const sinCultivo = conDatosBasicos.filter((s) => !s.cultivoId);
     if (sinCultivo.length > 0) {
       setError(
@@ -470,7 +470,7 @@ export default function ApuntadorPage() {
     const validos = conDatosBasicos;
     if (validos.length === 0) {
       setError(
-        "No hay espacios completos para guardar (falta empleado, actividad, cultivo o tarifa)."
+        "No hay espacios completos para guardar (falta empleado, actividad o cultivo)."
       );
       return;
     }
@@ -490,7 +490,7 @@ export default function ApuntadorPage() {
         tipo_pago: s.tipoPago,
         dias: s.tipoPago === "jornal" ? 1 : null,
         avance: s.tipoPago === "destajo" ? parseFloat(s.avance || "0") : null,
-        tarifa: parseFloat(s.tarifa),
+        tarifa: s.tarifa ? parseFloat(s.tarifa) : null,
         periodo: p.semana,
         periodo_anio: p.anio,
         hora_entrada: s.horaEntrada || null,
@@ -545,7 +545,7 @@ export default function ApuntadorPage() {
       actividadId: r.actividad_id ?? "",
       tipoPago: r.tipo_pago,
       avance: r.avance != null ? String(r.avance) : "",
-      tarifa: String(r.tarifa),
+      tarifa: r.tarifa != null ? String(r.tarifa) : "",
     });
   }
 
@@ -565,7 +565,7 @@ export default function ApuntadorPage() {
         tipo_pago: edicion.tipoPago,
         dias: edicion.tipoPago === "jornal" ? 1 : null,
         avance: edicion.tipoPago === "destajo" ? parseFloat(edicion.avance || "0") : null,
-        tarifa: parseFloat(edicion.tarifa),
+        tarifa: edicion.tarifa ? parseFloat(edicion.tarifa) : null,
       })
       .eq("id", id);
     if (error) {

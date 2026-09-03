@@ -384,12 +384,48 @@ function VistaApuntador({
     }));
     recibos.sort((a, b) => a.clave.localeCompare(b.clave));
 
-    const campoNombre = filas[0]?.campos?.nombre ?? "";
+    const camposDistintos = new Set(filas.map((f) => f.campos?.nombre).filter(Boolean));
+    const campoNombre = camposDistintos.size > 1 ? "Todos los campos" : filas[0]?.campos?.nombre ?? "";
     const semana = filas[0]?.periodo;
     const anio = filas[0]?.periodo_anio;
     const tipoDelGrupo = filas[0]?.tipo_nomina ?? "eventual";
     const dias = semana && anio ? fechasDePeriodo(semana, anio, diaAnclaPorTipo(tipoDelGrupo)) : [];
     generarPdfRecibosNomina({ campoNombre, periodoLabel: `${nombreGrupo} (${tipoDelGrupo})`, dias, recibos });
+  }
+
+  const [generandoGeneral, setGenerandoGeneral] = useState(false);
+
+  // Lista general de firmas: TODOS los campos juntos, para un tipo de
+  // nomina + semana especifica -- asi un trabajador que se movio de
+  // campo en la misma semana sale completo, con todos sus dias.
+  async function descargarRecibosGeneral() {
+    if (!periodoSemana || !periodoAnio) {
+      setError("Para la lista general, escribe la Semana y el Año arriba (sin filtrar por campo).");
+      return;
+    }
+    setGenerandoGeneral(true);
+    setError(null);
+
+    const { data, error } = await supabase
+      .from("apuntador_diario")
+      .select(
+        "fecha, periodo, periodo_anio, tipo_nomina, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
+      )
+      .eq("tipo_nomina", tipoNomina || "eventual")
+      .eq("periodo", parseInt(periodoSemana))
+      .eq("periodo_anio", parseInt(periodoAnio));
+
+    setGenerandoGeneral(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      setError("No hay registros para esa semana/año/tipo de nómina.");
+      return;
+    }
+
+    descargarRecibosGrupo(data, `Todos los campos — Semana ${periodoSemana}-${periodoAnio}`);
   }
 
   async function eliminarRegistro(id: string) {
@@ -444,6 +480,21 @@ function VistaApuntador({
         </div>
         <button className="btn-primary" onClick={consultar} disabled={loading}>
           {loading ? "Consultando..." : "Consultar"}
+        </button>
+      </div>
+
+      <div className="card mb-6 flex flex-wrap items-center justify-between gap-3 bg-campo-50 p-4">
+        <div>
+          <p className="text-sm font-medium text-campo-800">
+            Lista general de firmas (todos los campos)
+          </p>
+          <p className="text-xs text-campo-600">
+            Usa el Tipo de nómina, Semana y Año de arriba — junta a cada trabajador aunque haya
+            cambiado de campo esa semana.
+          </p>
+        </div>
+        <button className="btn-primary" onClick={descargarRecibosGeneral} disabled={generandoGeneral}>
+          {generandoGeneral ? "Generando..." : "Generar lista general (PDF)"}
         </button>
       </div>
 
