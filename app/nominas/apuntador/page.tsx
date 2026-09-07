@@ -54,6 +54,8 @@ export default function ApuntadorPage() {
   const [tarifaMasiva, setTarifaMasiva] = useState("");
   const [cultivoMasivo, setCultivoMasivo] = useState("");
   const [tipoNominaMasivo, setTipoNominaMasivo] = useState("");
+  const [actividadMasiva, setActividadMasiva] = useState("");
+  const [cuadroMasivo, setCuadroMasivo] = useState("");
   const [horaEntradaMasiva, setHoraEntradaMasiva] = useState("");
   const [horaSalidaMasiva, setHoraSalidaMasiva] = useState("");
 
@@ -418,6 +420,16 @@ export default function ApuntadorPage() {
               horaSalida: horaSalidaMasiva !== "" ? horaSalidaMasiva : s.horaSalida,
               cultivoId: cultivoMasivo !== "" ? cultivoMasivo : s.cultivoId,
               tipoNomina: tipoNominaMasivo !== "" ? (tipoNominaMasivo as any) : s.tipoNomina,
+              actividadId: actividadMasiva !== "" ? actividadMasiva : s.actividadId,
+              actividadNombre:
+                actividadMasiva !== ""
+                  ? actividades.find((a) => a.id === actividadMasiva)?.label ?? s.actividadNombre
+                  : s.actividadNombre,
+              cuadroId: cuadroMasivo !== "" ? cuadroMasivo : s.cuadroId,
+              cuadroNombre:
+                cuadroMasivo !== ""
+                  ? cuadros.find((c) => c.id === cuadroMasivo)?.label ?? s.cuadroNombre
+                  : s.cuadroNombre,
             }
           : s
       )
@@ -716,6 +728,32 @@ export default function ApuntadorPage() {
               <option value="eventual">Eventual</option>
               <option value="planta">Planta</option>
               <option value="temporal">Temporal</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Actividad</label>
+            <select
+              className="input w-40"
+              value={actividadMasiva}
+              onChange={(e) => setActividadMasiva(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              {actividades.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
+            <select
+              className="input w-32"
+              value={cuadroMasivo}
+              onChange={(e) => setCuadroMasivo(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              {cuadros.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
             </select>
           </div>
           <button className="btn-secondary" onClick={aplicarValoresMasivos}>
