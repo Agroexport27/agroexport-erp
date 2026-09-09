@@ -52,7 +52,7 @@ export default function RegistrosCortePage() {
       .then(({ data }) => setCultivos((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
     supabase
       .from("calibres")
-      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden")
+      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden, cultivo_id, cultivos(nombre)")
       .order("orden")
       .then(({ data }) => setCalibres(data ?? []));
     supabase
@@ -155,16 +155,44 @@ export default function RegistrosCortePage() {
   const grupos = useMemo(() => {
     const mapa = new Map<string, any>();
     for (const r of registros) {
-      const key = `${r.fecha}__${r.campos?.nombre ?? ""}`;
+      const cultivo = r.cultivos?.nombre ?? "";
+      const key = `${r.fecha}__${r.campos?.nombre ?? ""}__${cultivo}`;
       const g =
         mapa.get(key) ??
-        { fecha: r.fecha, campo: r.campos?.nombre ?? "", filas: [] as any[], totalCajas: 0 };
+        { fecha: r.fecha, campo: r.campos?.nombre ?? "", cultivo, filas: [] as any[], totalCajas: 0 };
       g.filas.push(r);
       g.totalCajas += Number(r.cajas ?? 0);
       mapa.set(key, g);
     }
     return Array.from(mapa.values()).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
   }, [registros]);
+
+  // Las columnas de calibre dependen del cultivo de cada grupo -- las
+  // variantes de Sandia Mini (ej. Amarilla) usan el mismo catalogo base.
+  function calibresDelCultivo(nombreCultivo: string) {
+    const n = (nombreCultivo || "").toLowerCase();
+    const esVarianteSandiaMini = n.includes("sandía mini") || n.includes("sandia mini");
+    const nombreBase = esVarianteSandiaMini ? "Sandía Mini" : nombreCultivo;
+    const delCultivo = calibres.filter((c) => c.cultivos?.nombre === nombreBase);
+    return {
+      caja: delCultivo
+        .filter((c) => c.cajas_por_pallet != null)
+        .sort((a, b) => a.orden - b.orden)
+        .map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
+      bin: delCultivo
+        .filter((c) => c.cajas_por_bin != null)
+        .sort((a, b) => a.orden - b.orden)
+        .map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
+    };
+  }
+
+  // El % por tamaño (agrupando M9->9, 8COS/FT8C->8, 6J/6JXL/4D->6) solo
+  // aplica al catalogo de Sandia Mini -- para otros cultivos (Pepino,
+  // Regular) no hay ese agrupamiento definido, asi que se omite.
+  function esCultivoConTamano(nombreCultivo: string) {
+    const n = (nombreCultivo || "").toLowerCase();
+    return n.includes("sandía mini") || n.includes("sandia mini");
+  }
 
   const calibresCaja = useMemo(
     () => calibres.filter((c) => c.cajas_por_pallet != null).sort((a, b) => a.orden - b.orden).map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
@@ -188,14 +216,17 @@ export default function RegistrosCortePage() {
   }
 
   function descargarResumenExcel(g: any) {
-    generarExcelResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
+    const { caja, bin } = calibresDelCultivo(g.cultivo);
+    generarExcelResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja: caja, calibresBin: bin });
   }
   function descargarResumenPdf(g: any) {
-    generarPdfResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
+    const { caja, bin } = calibresDelCultivo(g.cultivo);
+    generarPdfResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja: caja, calibresBin: bin });
   }
   function descargarPdfDistribuidor(g: any, distribuidor: string) {
+    const { caja, bin } = calibresDelCultivo(g.cultivo);
     const filasDist = detalleDeGrupo(g).filter((f: any) => f.distribuidor === distribuidor);
-    generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja, calibresBin });
+    generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja: caja, calibresBin: bin });
   }
 
   const TAMANOS_BASE = ["6", "8", "9", "11"];
@@ -298,7 +329,7 @@ export default function RegistrosCortePage() {
         <details key={`${g.fecha}__${g.campo}`} className="card mb-2 overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
             <span className="text-sm font-medium text-campo-800">
-              {g.fecha} — {g.campo}
+              {g.fecha} — {g.campo} — {g.cultivo}
               <span className="ml-2 font-normal text-campo-500">
                 ({g.filas.length} renglón(es) · {g.totalCajas.toFixed(0)} cajas)
               </span>
@@ -384,25 +415,28 @@ export default function RegistrosCortePage() {
             </tbody>
           </table>
 
-          <div className="border-t border-campo-100 px-4 py-3">
-            <p className="mb-1 text-xs font-medium text-campo-600">% por tamaño — total del día</p>
-            <div className="mb-3 flex flex-wrap gap-4 text-xs text-campo-700">
-              {resumenTamanos(detalleDeGrupo(g)).map((t) => (
-                <span key={t.tamano}>
-                  <strong>{t.tamano}:</strong> {t.cajas.toFixed(0)} cajas ({t.porcentaje.toFixed(1)}%)
-                </span>
-              ))}
-            </div>
-            {Array.from(new Set(g.filas.map((r: any) => r.distribuidores?.nombre))).map((dist: any) => (
-              <div key={dist} className="mb-1 flex flex-wrap items-center gap-4 text-xs">
-                <span className="w-32 shrink-0 font-medium text-campo-600">{dist}:</span>
-                {resumenTamanos(detalleDeGrupo(g).filter((f: any) => f.distribuidor === dist)).map((t) => (
-                  <span key={t.tamano} className="text-campo-600">
-                    {t.tamano}: {t.porcentaje.toFixed(1)}%
+          {esCultivoConTamano(g.cultivo) && (
+            <div className="border-t border-campo-100 px-4 py-3">
+              <p className="mb-1 text-xs font-medium text-campo-600">% por tamaño — total del día</p>
+              <div className="mb-3 flex flex-wrap gap-4 text-xs text-campo-700">
+                {resumenTamanos(detalleDeGrupo(g)).map((t) => (
+                  <span key={t.tamano}>
+                    <strong>{t.tamano}:</strong> {t.cajas.toFixed(0)} cajas ({t.porcentaje.toFixed(1)}%)
                   </span>
                 ))}
               </div>
-            ))}
+              {Array.from(new Set(g.filas.map((r: any) => r.distribuidores?.nombre))).map((dist: any) => (
+                <div key={dist} className="mb-1 flex flex-wrap items-center gap-4 text-xs">
+                  <span className="w-32 shrink-0 font-medium text-campo-600">{dist}:</span>
+                  {resumenTamanos(detalleDeGrupo(g).filter((f: any) => f.distribuidor === dist)).map((t) => (
+                    <span key={t.tamano} className="text-campo-600">
+                      {t.tamano}: {t.porcentaje.toFixed(1)}%
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
           </div>
         </details>
       ))}
