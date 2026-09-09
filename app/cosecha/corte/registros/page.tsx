@@ -437,7 +437,6 @@ export default function RegistrosCortePage() {
               ))}
             </div>
           )}
-          </div>
         </details>
       ))}
     </div>
