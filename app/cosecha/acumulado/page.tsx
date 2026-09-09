@@ -17,11 +17,18 @@ function tamanoDeCalibre(nombreCalibre: string): string | null {
   return null;
 }
 
+function esCultivoConTamano(nombre: string) {
+  const n = (nombre || "").toLowerCase();
+  return n.includes("sandía mini") || n.includes("sandia mini");
+}
+
 export default function AcumuladoCosechaPage() {
   const supabase = createClient();
 
   const [ciclos, setCiclos] = useState<{ id: string; clave: string; fecha_inicio: string; fecha_fin: string }[]>([]);
   const [cicloId, setCicloId] = useState("");
+  const [cultivos, setCultivos] = useState<Opcion[]>([]);
+  const [cultivoId, setCultivoId] = useState("");
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [campoDetalleId, setCampoDetalleId] = useState("");
 
@@ -55,6 +62,17 @@ export default function AcumuladoCosechaPage() {
         setCampos(opciones);
         if (opciones.length > 0) setCampoDetalleId(opciones[0].id);
       });
+    supabase
+      .from("cultivos")
+      .select("id, nombre")
+      .neq("nombre", "Solarizado")
+      .order("nombre")
+      .then(({ data }) => {
+        const opciones = (data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }));
+        setCultivos(opciones);
+        const mini = opciones.find((c: any) => c.label === "Sandía Mini");
+        setCultivoId(mini ? mini.id : opciones[0]?.id ?? "");
+      });
   }, []);
 
   function aplicarCiclo(id: string) {
@@ -67,7 +85,7 @@ export default function AcumuladoCosechaPage() {
   }
 
   async function consultar() {
-    if (!cicloId || !fechaInicio || !fechaFin) return;
+    if (!cicloId || !fechaInicio || !fechaFin || !cultivoId) return;
     setLoading(true);
     setError(null);
 
@@ -77,6 +95,7 @@ export default function AcumuladoCosechaPage() {
         .select(
           "fecha, cajas, tipo_unidad, cuadro_id, cuadros(nombre, campo_id, campos(nombre)), distribuidores(nombre), calibres(nombre)"
         )
+        .eq("cultivo_id", cultivoId)
         .gte("fecha", fechaInicio)
         .lte("fecha", fechaFin),
       supabase
@@ -106,7 +125,7 @@ export default function AcumuladoCosechaPage() {
   useEffect(() => {
     consultar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cicloId]);
+  }, [cicloId, cultivoId]);
 
   // ---- Consolidado diario: por campo y por distribuidor ----
   const consolidadoDiario = useMemo(() => {
@@ -235,12 +254,20 @@ export default function AcumuladoCosechaPage() {
         </div>
       )}
 
-      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-5">
+      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-6">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Ciclo</label>
           <select className="input" value={cicloId} onChange={(e) => aplicarCiclo(e.target.value)}>
             {ciclos.map((c) => (
               <option key={c.id} value={c.id}>{c.clave}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cultivo</label>
+          <select className="input" value={cultivoId} onChange={(e) => setCultivoId(e.target.value)}>
+            {cultivos.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
             ))}
           </select>
         </div>
@@ -380,14 +407,16 @@ export default function AcumuladoCosechaPage() {
             </tr>
           </tfoot>
         </table>
-        <div className="flex flex-wrap gap-4 border-t border-campo-100 px-4 py-3 text-xs text-campo-700">
-          <span className="font-medium text-campo-600">% por tamaño (general):</span>
-          {resumenVariedad.porcentajesTamano.map((t) => (
-            <span key={t.tamano}>
-              <strong>{t.tamano}:</strong> {t.porcentaje.toFixed(1)}%
-            </span>
-          ))}
-        </div>
+        {esCultivoConTamano(cultivos.find((c) => c.id === cultivoId)?.label ?? "") && (
+          <div className="flex flex-wrap gap-4 border-t border-campo-100 px-4 py-3 text-xs text-campo-700">
+            <span className="font-medium text-campo-600">% por tamaño (general):</span>
+            {resumenVariedad.porcentajesTamano.map((t) => (
+              <span key={t.tamano}>
+                <strong>{t.tamano}:</strong> {t.porcentaje.toFixed(1)}%
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
