@@ -38,7 +38,7 @@ export function generarPdfRecibosNomina({
       const suma = r.filas
         .filter((f) => f.fecha === d.fecha)
         .reduce((s, f) => s + f.total, 0);
-      return suma > 0 ? suma.toFixed(0) : "";
+      return suma > 0 ? suma.toFixed(2) : "";
     });
     const total = r.filas.reduce((s, f) => s + f.total, 0);
     return [String(i + 1), r.clave, r.nombre, ...totalesPorDia, `$${total.toFixed(2)}`, ""];
@@ -51,7 +51,7 @@ export function generarPdfRecibosNomina({
           s + r.filas.filter((f) => f.fecha === d.fecha).reduce((s2, f) => s2 + f.total, 0),
         0
       )
-      .toFixed(0)
+      .toFixed(2)
   );
   const granTotal = recibos.reduce(
     (s, r) => s + r.filas.reduce((s2, f) => s2 + f.total, 0),

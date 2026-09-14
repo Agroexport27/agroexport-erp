@@ -31,11 +31,18 @@ export default function AcumuladoCosechaPage() {
   const [cultivoId, setCultivoId] = useState("");
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [campoDetalleId, setCampoDetalleId] = useState("");
+  const [asignarCuadroId, setAsignarCuadroId] = useState("");
+  const [asignarFecha, setAsignarFecha] = useState("");
+  const [asignarNumero, setAsignarNumero] = useState("1");
+  const [guardandoAsignacion, setGuardandoAsignacion] = useState(false);
 
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
   const [registros, setRegistros] = useState<any[]>([]);
   const [variedadPorCuadro, setVariedadPorCuadro] = useState<Record<string, { variedad: string; hectareas: number }>>({});
+  const [cuadrosPlantados, setCuadrosPlantados] = useState<
+    { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,14 +100,14 @@ export default function AcumuladoCosechaPage() {
       supabase
         .from("corte_diario")
         .select(
-          "fecha, cajas, tipo_unidad, cuadro_id, cuadros(nombre, campo_id, campos(nombre)), distribuidores(nombre), calibres(nombre)"
+          "fecha, cajas, tipo_unidad, numero_corte, cuadro_id, cuadros(nombre, campo_id, campos(nombre)), distribuidores(nombre), calibres(nombre)"
         )
         .eq("cultivo_id", cultivoId)
         .gte("fecha", fechaInicio)
         .lte("fecha", fechaFin),
       supabase
         .from("cuadro_ciclo")
-        .select("cuadro_id, hectareas, variedades(nombre)")
+        .select("cuadro_id, hectareas, variedades(nombre), cuadros(nombre, campo_id, cultivo_id, cultivos(nombre))")
         .eq("ciclo_id", cicloId),
     ]);
 
@@ -111,13 +118,31 @@ export default function AcumuladoCosechaPage() {
     }
 
     const mapaVariedad: Record<string, { variedad: string; hectareas: number }> = {};
+    const nombreCultivoSel = (cultivos.find((c) => c.id === cultivoId)?.label ?? "").toLowerCase();
+    const esVarianteSandiaMini = nombreCultivoSel.includes("sandía mini") || nombreCultivoSel.includes("sandia mini");
+    const plantados: { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number }[] = [];
+
     for (const p of (prog ?? []) as any[]) {
       mapaVariedad[p.cuadro_id] = {
         variedad: p.variedades?.nombre ?? "Sin variedad",
         hectareas: Number(p.hectareas ?? 0),
       };
+      const nombreCultivoCuadro = (p.cuadros?.cultivos?.nombre ?? "").toLowerCase();
+      const esMismoCultivo = esVarianteSandiaMini
+        ? nombreCultivoCuadro.includes("sandía mini") || nombreCultivoCuadro.includes("sandia mini")
+        : nombreCultivoCuadro === nombreCultivoSel;
+      if (esMismoCultivo) {
+        plantados.push({
+          cuadroId: p.cuadro_id,
+          nombre: p.cuadros?.nombre ?? "",
+          campoId: p.cuadros?.campo_id ?? "",
+          variedad: p.variedades?.nombre ?? "Sin variedad",
+          hectareas: Number(p.hectareas ?? 0),
+        });
+      }
     }
     setVariedadPorCuadro(mapaVariedad);
+    setCuadrosPlantados(plantados);
     setRegistros(corte ?? []);
     setLoading(false);
   }
@@ -166,14 +191,9 @@ export default function AcumuladoCosechaPage() {
   // ---- Detalle por cuadro, para el campo elegido ----
   const detallePorCuadro = useMemo(() => {
     const filasDelCampo = registros.filter((r) => r.cuadros?.campo_id === campoDetalleId);
-    const cuadrosUsados = Array.from(new Set(filasDelCampo.map((r) => r.cuadro_id)));
-    const cuadrosInfo = cuadrosUsados
-      .map((id) => ({
-        id,
-        nombre: filasDelCampo.find((r) => r.cuadro_id === id)?.cuadros?.nombre ?? "",
-        variedad: variedadPorCuadro[id]?.variedad ?? "Sin variedad",
-        hectareas: variedadPorCuadro[id]?.hectareas ?? 0,
-      }))
+    const cuadrosInfo = cuadrosPlantados
+      .filter((c) => c.campoId === campoDetalleId)
+      .map((c) => ({ id: c.cuadroId, nombre: c.nombre, variedad: c.variedad, hectareas: c.hectareas }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true }));
 
     const porFecha = new Map<string, Record<string, number>>();
@@ -185,8 +205,13 @@ export default function AcumuladoCosechaPage() {
     }
     const fechas = Array.from(porFecha.keys()).sort();
 
-    return { cuadrosInfo, fechas, porFecha };
-  }, [registros, campoDetalleId, variedadPorCuadro]);
+    const totalPorCuadro: Record<string, number> = {};
+    for (const c of cuadrosInfo) {
+      totalPorCuadro[c.id] = fechas.reduce((s, f) => s + (porFecha.get(f)?.[c.id] ?? 0), 0);
+    }
+
+    return { cuadrosInfo, fechas, porFecha, totalPorCuadro };
+  }, [registros, campoDetalleId, cuadrosPlantados]);
 
   // ---- % Resumen: por variedad x calibre, consolidado todos los campos ----
   const resumenVariedad = useMemo(() => {
@@ -209,6 +234,20 @@ export default function AcumuladoCosechaPage() {
       cantidades,
       total: Object.values(cantidades).reduce((s, v) => s + v, 0),
     }));
+
+    // % por tamaño de CADA variedad (no solo el general)
+    for (const v of variedades) {
+      const cajasPorTamanoV: Record<string, number> = {};
+      for (const c of calibresOrden) {
+        const t = tamanoDeCalibre(c);
+        if (!t) continue;
+        cajasPorTamanoV[t] = (cajasPorTamanoV[t] ?? 0) + (v.cantidades[c] ?? 0);
+      }
+      (v as any).porcentajesTamano = TAMANOS_BASE.map((t) => ({
+        tamano: t,
+        porcentaje: v.total > 0 ? ((cajasPorTamanoV[t] ?? 0) / v.total) * 100 : 0,
+      }));
+    }
 
     const totalesPorCalibre: Record<string, number> = {};
     for (const v of variedades) {
@@ -233,6 +272,53 @@ export default function AcumuladoCosechaPage() {
 
     return { calibresOrden, variedades, totalesPorCalibre, granTotal, porcentajesTamano };
   }, [registros, variedadPorCuadro]);
+
+  // ---- Desglose por numero de corte (1er, 2do, 3er...) ----
+  const resumenPorCorte = useMemo(() => {
+    const numeros = Array.from(new Set(registros.map((r) => r.numero_corte ?? 1))).sort((a, b) => a - b);
+    const porCuadro = new Map<string, { nombre: string; porNumero: Record<number, number> }>();
+    for (const r of registros) {
+      if (r.tipo_unidad !== "pallet" && r.tipo_unidad !== "bins") continue;
+      const cuadroId = r.cuadro_id;
+      const item =
+        porCuadro.get(cuadroId) ?? { nombre: r.cuadros?.nombre ?? "", porNumero: {} };
+      const n = r.numero_corte ?? 1;
+      item.porNumero[n] = (item.porNumero[n] ?? 0) + Number(r.cajas ?? 0);
+      porCuadro.set(cuadroId, item);
+    }
+    const filas = Array.from(porCuadro.values()).sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, undefined, { numeric: true })
+    );
+    const totalesPorNumero: Record<number, number> = {};
+    for (const f of filas) {
+      for (const n of numeros) totalesPorNumero[n] = (totalesPorNumero[n] ?? 0) + (f.porNumero[n] ?? 0);
+    }
+    return { numeros, filas, totalesPorNumero };
+  }, [registros]);
+
+  const fechasDelCuadroAsignar = useMemo(() => {
+    return Array.from(new Set(registros.filter((r) => r.cuadro_id === asignarCuadroId).map((r) => r.fecha))).sort();
+  }, [registros, asignarCuadroId]);
+
+  async function guardarAsignacionCorte() {
+    if (!asignarCuadroId || !asignarFecha || !asignarNumero) {
+      setError("Elige cuadro, fecha y número de corte para asignar.");
+      return;
+    }
+    setGuardandoAsignacion(true);
+    setError(null);
+    const { error } = await supabase
+      .from("corte_diario")
+      .update({ numero_corte: parseInt(asignarNumero, 10) || 1 })
+      .eq("cuadro_id", asignarCuadroId)
+      .eq("fecha", asignarFecha);
+    setGuardandoAsignacion(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    consultar();
+  }
 
   function descargarExcel() {
     generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "" });
@@ -288,9 +374,20 @@ export default function AcumuladoCosechaPage() {
         </div>
       </div>
 
-      <div className="card mb-6 p-4">
-        <p className="text-xs text-campo-500">Total de cajas en el rango</p>
-        <p className="text-2xl font-semibold text-campo-900">{totalGeneral.toLocaleString()}</p>
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
+        <div className="card p-4">
+          <p className="text-xs text-campo-500">Total general</p>
+          <p className="text-2xl font-semibold text-campo-900">{totalGeneral.toLocaleString()}</p>
+        </div>
+        {consolidadoDiario.nombresDist.map((d) => {
+          const totalDist = consolidadoDiario.filas.reduce((s, f) => s + (f.porDist[d] || 0), 0);
+          return (
+            <div key={d} className="card p-4">
+              <p className="text-xs text-campo-500">{d}</p>
+              <p className="text-2xl font-semibold text-campo-900">{totalDist.toLocaleString()}</p>
+            </div>
+          );
+        })}
       </div>
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">Consolidado diario</h2>
@@ -366,6 +463,27 @@ export default function AcumuladoCosechaPage() {
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr className="border-t border-campo-100 bg-campo-50 text-xs font-medium">
+              <td className="px-3 py-1 text-campo-700">Total</td>
+              {detallePorCuadro.cuadrosInfo.map((c) => (
+                <td key={c.id} className="px-2 py-1 text-center text-campo-700">
+                  {detallePorCuadro.totalPorCuadro[c.id]?.toFixed(0) || "—"}
+                </td>
+              ))}
+            </tr>
+            <tr className="border-t border-campo-50 text-xs">
+              <td className="px-3 py-1 text-campo-600">Cajas/ha</td>
+              {detallePorCuadro.cuadrosInfo.map((c) => {
+                const total = detallePorCuadro.totalPorCuadro[c.id] ?? 0;
+                return (
+                  <td key={c.id} className="px-2 py-1 text-center text-campo-600">
+                    {c.hectareas > 0 ? (total / c.hectareas).toFixed(1) : "—"}
+                  </td>
+                );
+              })}
+            </tr>
+          </tfoot>
         </table>
       </div>
 
@@ -379,19 +497,29 @@ export default function AcumuladoCosechaPage() {
                 <th key={c} className="px-2 py-2 text-center">{c}</th>
               ))}
               <th className="px-3 py-2 text-center">Total</th>
+              {esCultivoConTamano(cultivos.find((c) => c.id === cultivoId)?.label ?? "") &&
+                TAMANOS_BASE.map((t) => (
+                  <th key={t} className="px-2 py-2 text-center">%{t}</th>
+                ))}
             </tr>
           </thead>
           <tbody>
             {resumenVariedad.variedades.length === 0 && (
               <tr><td className="px-3 py-4 text-campo-400" colSpan={15}>Sin datos.</td></tr>
             )}
-            {resumenVariedad.variedades.map((v) => (
+            {resumenVariedad.variedades.map((v: any) => (
               <tr key={v.variedad} className="border-t border-campo-50">
                 <td className="px-3 py-1 text-campo-800">{v.variedad}</td>
                 {resumenVariedad.calibresOrden.map((c) => (
                   <td key={c} className="px-2 py-1 text-center text-campo-800">{v.cantidades[c] || "—"}</td>
                 ))}
                 <td className="px-3 py-1 text-center font-medium text-campo-800">{v.total.toFixed(0)}</td>
+                {esCultivoConTamano(cultivos.find((c) => c.id === cultivoId)?.label ?? "") &&
+                  v.porcentajesTamano?.map((pt: any) => (
+                    <td key={pt.tamano} className="px-2 py-1 text-center text-campo-600">
+                      {pt.porcentaje.toFixed(1)}%
+                    </td>
+                  ))}
               </tr>
             ))}
           </tbody>
@@ -417,6 +545,85 @@ export default function AcumuladoCosechaPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <h2 className="mb-2 text-sm font-semibold text-campo-800">Cajas por número de corte</h2>
+      <div className="card mb-3 flex flex-wrap items-end gap-3 p-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
+          <select
+            className="input w-32"
+            value={asignarCuadroId}
+            onChange={(e) => {
+              setAsignarCuadroId(e.target.value);
+              setAsignarFecha("");
+            }}
+          >
+            <option value="">Selecciona...</option>
+            {cuadrosPlantados.map((c) => (
+              <option key={c.cuadroId} value={c.cuadroId}>{c.nombre}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Fecha</label>
+          <select className="input w-36" value={asignarFecha} onChange={(e) => setAsignarFecha(e.target.value)}>
+            <option value="">Selecciona...</option>
+            {fechasDelCuadroAsignar.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Número de corte</label>
+          <input
+            type="number"
+            min={1}
+            className="input w-24"
+            value={asignarNumero}
+            onChange={(e) => setAsignarNumero(e.target.value)}
+          />
+        </div>
+        <button className="btn-primary" onClick={guardarAsignacionCorte} disabled={guardandoAsignacion}>
+          {guardandoAsignacion ? "Guardando..." : "Asignar"}
+        </button>
+      </div>
+      <div className="card mb-6 overflow-x-auto">
+        <table className="w-full min-w-[600px] text-sm">
+          <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
+            <tr>
+              <th className="px-3 py-2">Cuadro</th>
+              {resumenPorCorte.numeros.map((n) => (
+                <th key={n} className="px-2 py-2 text-center">Corte {n}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {resumenPorCorte.filas.length === 0 && (
+              <tr><td className="px-3 py-4 text-campo-400" colSpan={6}>Sin datos.</td></tr>
+            )}
+            {resumenPorCorte.filas.map((f) => (
+              <tr key={f.nombre} className="border-t border-campo-50">
+                <td className="px-3 py-1 text-campo-800">{f.nombre}</td>
+                {resumenPorCorte.numeros.map((n) => (
+                  <td key={n} className="px-2 py-1 text-center text-campo-800">
+                    {f.porNumero[n]?.toFixed(0) || "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-campo-100 bg-campo-50 font-medium">
+              <td className="px-3 py-1 text-campo-700">Total</td>
+              {resumenPorCorte.numeros.map((n) => (
+                <td key={n} className="px-2 py-1 text-center text-campo-700">
+                  {resumenPorCorte.totalesPorNumero[n]?.toFixed(0) || "—"}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );
