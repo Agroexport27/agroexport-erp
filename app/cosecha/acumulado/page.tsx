@@ -281,7 +281,7 @@ export default function AcumuladoCosechaPage() {
       if (r.tipo_unidad !== "pallet" && r.tipo_unidad !== "bins") continue;
       const cuadroId = r.cuadro_id;
       const item =
-        porCuadro.get(cuadroId) ?? { nombre: r.cuadros?.nombre ?? "", porNumero: {} };
+        porCuadro.get(cuadroId) ?? { nombre: r.cuadros?.nombre ?? "", porNumero: {} as Record<number, number> };
       const n = r.numero_corte ?? 1;
       item.porNumero[n] = (item.porNumero[n] ?? 0) + Number(r.cajas ?? 0);
       porCuadro.set(cuadroId, item);
