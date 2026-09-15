@@ -159,6 +159,17 @@ export default function AcumuladoCosechaPage() {
     setVariedadPorCuadro(mapaVariedad);
     setCuadrosPlantados(plantados);
     setRegistros(corte ?? []);
+
+    const { data: notas } = await supabase
+      .from("acumulado_notas_corte")
+      .select("cuadro_id, numero_corte, texto")
+      .eq("ciclo_id", cicloId);
+    const mapaNotas: Record<string, string> = {};
+    for (const n of (notas ?? []) as any[]) {
+      mapaNotas[`${n.cuadro_id}__${n.numero_corte}`] = n.texto ?? "";
+    }
+    setNotasCorte(mapaNotas);
+
     setLoading(false);
   }
 
@@ -289,8 +300,17 @@ export default function AcumuladoCosechaPage() {
   }, [registros, variedadPorCuadro]);
 
   // Los renglones de corte (1er, 2do, 3er, 4to, 5to) son texto libre,
-  // llenado a mano -- no se calculan ni se guardan en la base de datos.
+  // llenado a mano -- se guardan por ciclo+cuadro+numero.
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
+
+  async function guardarNotaCorte(cuadroId: string, numero: number, texto: string) {
+    await supabase
+      .from("acumulado_notas_corte")
+      .upsert(
+        { ciclo_id: cicloId, cuadro_id: cuadroId, numero_corte: numero, texto },
+        { onConflict: "ciclo_id,cuadro_id,numero_corte" }
+      );
+  }
 
   function descargarExcel() {
     generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "" });
@@ -470,12 +490,13 @@ export default function AcumuladoCosechaPage() {
                 {detallePorCuadro.cuadrosInfo.map((c) => {
                   const key = `${c.id}__${n}`;
                   return (
-                    <td key={c.id} className="px-1 py-1">
+                    <td key={c.id} className="px-0.5 py-1">
                       <input
                         type="text"
-                        className="input w-16 text-center"
+                        className="input w-10 px-1 text-center text-xs"
                         value={notasCorte[key] ?? ""}
                         onChange={(e) => setNotasCorte({ ...notasCorte, [key]: e.target.value })}
+                        onBlur={(e) => guardarNotaCorte(c.id, n, e.target.value)}
                       />
                     </td>
                   );
