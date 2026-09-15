@@ -33,10 +33,7 @@ export default function AcumuladoCosechaPage() {
   const [distribuidorFiltroId, setDistribuidorFiltroId] = useState("");
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [campoDetalleId, setCampoDetalleId] = useState("");
-  const [asignarCuadroId, setAsignarCuadroId] = useState("");
-  const [asignarFecha, setAsignarFecha] = useState("");
-  const [asignarNumero, setAsignarNumero] = useState("1");
-  const [guardandoAsignacion, setGuardandoAsignacion] = useState(false);
+  const [notasCorte, setNotasCorte] = useState<Record<string, string>>({}); // key: `${cuadroId}__${numero}`
 
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
@@ -291,42 +288,9 @@ export default function AcumuladoCosechaPage() {
     return { calibresOrden, variedades, totalesPorCalibre, granTotal, porcentajesTamano };
   }, [registros, variedadPorCuadro]);
 
-  // ---- Desglose por numero de corte (1er, 2do, 3er...) ----
+  // Los renglones de corte (1er, 2do, 3er, 4to, 5to) son texto libre,
+  // llenado a mano -- no se calculan ni se guardan en la base de datos.
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
-  const porNumeroCortePorCuadro = useMemo(() => {
-    const mapa: Record<string, Record<number, number>> = {};
-    for (const r of registros) {
-      const cuadroId = r.cuadro_id;
-      const n = r.numero_corte ?? 1;
-      mapa[cuadroId] = mapa[cuadroId] ?? {};
-      mapa[cuadroId][n] = (mapa[cuadroId][n] ?? 0) + Number(r.cajas ?? 0);
-    }
-    return mapa;
-  }, [registros]);
-
-  const fechasDelCuadroAsignar = useMemo(() => {
-    return Array.from(new Set(registros.filter((r) => r.cuadro_id === asignarCuadroId).map((r) => r.fecha))).sort();
-  }, [registros, asignarCuadroId]);
-
-  async function guardarAsignacionCorte() {
-    if (!asignarCuadroId || !asignarFecha || !asignarNumero) {
-      setError("Elige cuadro, fecha y número de corte para asignar.");
-      return;
-    }
-    setGuardandoAsignacion(true);
-    setError(null);
-    const { error } = await supabase
-      .from("corte_diario")
-      .update({ numero_corte: parseInt(asignarNumero, 10) || 1 })
-      .eq("cuadro_id", asignarCuadroId)
-      .eq("fecha", asignarFecha);
-    setGuardandoAsignacion(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    consultar();
-  }
 
   function descargarExcel() {
     generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "" });
@@ -444,48 +408,6 @@ export default function AcumuladoCosechaPage() {
         </table>
       </div>
 
-      <h2 className="mb-2 text-sm font-semibold text-campo-800">Asignar número de corte</h2>
-      <div className="card mb-6 flex flex-wrap items-end gap-3 p-4">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
-          <select
-            className="input w-32"
-            value={asignarCuadroId}
-            onChange={(e) => {
-              setAsignarCuadroId(e.target.value);
-              setAsignarFecha("");
-            }}
-          >
-            <option value="">Selecciona...</option>
-            {cuadrosPlantados.map((c) => (
-              <option key={c.cuadroId} value={c.cuadroId}>{c.nombre}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Fecha</label>
-          <select className="input w-36" value={asignarFecha} onChange={(e) => setAsignarFecha(e.target.value)}>
-            <option value="">Selecciona...</option>
-            {fechasDelCuadroAsignar.map((f) => (
-              <option key={f} value={f}>{f}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Número de corte</label>
-          <input
-            type="number"
-            min={1}
-            className="input w-24"
-            value={asignarNumero}
-            onChange={(e) => setAsignarNumero(e.target.value)}
-          />
-        </div>
-        <button className="btn-primary" onClick={guardarAsignacionCorte} disabled={guardandoAsignacion}>
-          {guardandoAsignacion ? "Guardando..." : "Asignar"}
-        </button>
-      </div>
-
       <h2 className="mb-2 text-sm font-semibold text-campo-800">Detalle por cuadro</h2>
       <div className="mb-2">
         <select className="input max-w-xs" value={campoDetalleId} onChange={(e) => setCampoDetalleId(e.target.value)}>
@@ -531,12 +453,12 @@ export default function AcumuladoCosechaPage() {
                 </td>
               ))}
             </tr>
-            <tr className="border-t border-campo-50 text-xs">
-              <td className="px-3 py-1 text-campo-600">Cajas/ha</td>
+            <tr className="border-t border-campo-50 bg-green-50 text-xs">
+              <td className="px-3 py-1 font-bold text-green-700">Cajas/ha</td>
               {detallePorCuadro.cuadrosInfo.map((c) => {
                 const total = detallePorCuadro.totalPorCuadro[c.id] ?? 0;
                 return (
-                  <td key={c.id} className="px-2 py-1 text-center text-campo-600">
+                  <td key={c.id} className="px-2 py-1 text-center font-bold text-green-700">
                     {c.hectareas > 0 ? (total / c.hectareas).toFixed(1) : "—"}
                   </td>
                 );
@@ -545,11 +467,19 @@ export default function AcumuladoCosechaPage() {
             {CORTES_FIJOS.map((n, i) => (
               <tr key={n} className={i === 0 ? "border-t border-campo-100 text-xs" : "text-xs"}>
                 <td className="px-3 py-1 text-campo-600">{["1er", "2do", "3er", "4to", "5to"][i]} corte</td>
-                {detallePorCuadro.cuadrosInfo.map((c) => (
-                  <td key={c.id} className="px-2 py-1 text-center text-campo-600">
-                    {porNumeroCortePorCuadro[c.id]?.[n]?.toFixed(0) || "—"}
-                  </td>
-                ))}
+                {detallePorCuadro.cuadrosInfo.map((c) => {
+                  const key = `${c.id}__${n}`;
+                  return (
+                    <td key={c.id} className="px-1 py-1">
+                      <input
+                        type="text"
+                        className="input w-16 text-center"
+                        value={notasCorte[key] ?? ""}
+                        onChange={(e) => setNotasCorte({ ...notasCorte, [key]: e.target.value })}
+                      />
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tfoot>
