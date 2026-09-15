@@ -2,6 +2,7 @@ const SECCIONES = [
   { nombre: "Corte diario", href: "/cosecha/corte", listo: true },
   { nombre: "Registros de corte", href: "/cosecha/corte/registros", listo: true },
   { nombre: "Acumulado", href: "/cosecha/acumulado", listo: true },
+  { nombre: "Inventario (Corte vs Embarques)", href: "/cosecha/inventario", listo: true },
 ];
 
 export default function CosechaPage() {
