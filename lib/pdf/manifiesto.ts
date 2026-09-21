@@ -1,0 +1,259 @@
+import jsPDF from "jspdf";
+
+// Nombre de la caja segun distribuidor (viene de la receta de materiales
+// que ya cargamos en Empaque).
+const CAJA_POR_DISTRIBUIDOR: Record<string, string> = {
+  Dulcinea: "CAJA DULCINEA MANUAL",
+  Giumarra: "CAJA LOLITA",
+  "Robinson Fresh": "CAJA LOLITA",
+  "Divine Flavor": "CAJA DIVINE FLAVOR",
+  Nacional: "CAJA LOLITA",
+};
+
+const PESO_POR_CAJA_LBS = 35; // fijo para Sandia Mini, todos los calibres
+
+function numeroATexto(n: number): string {
+  // Para "SON:" -- como siempre es consignacion, el monto es cero.
+  return "CERO DOLARES 00/100 U.S.Cy.";
+}
+
+export type LineaManifiesto = {
+  cajas: number;
+  calibreNombre: string;
+  cajasPorPallet: number | null;
+};
+
+export function generarPdfManifiesto({
+  serie,
+  folio,
+  fecha,
+  campoNombre,
+  distribuidor,
+  distribuidorDireccion,
+  distribuidorCiudad,
+  cajaTransporte,
+  placas,
+  chofer,
+  regTransporte,
+  cultivoNombre,
+  lineas,
+}: {
+  serie: string;
+  folio: string;
+  fecha: string; // YYYY-MM-DD
+  campoNombre: string;
+  distribuidor: string;
+  distribuidorDireccion: string;
+  distribuidorCiudad: string;
+  cajaTransporte: string;
+  placas: string;
+  chofer: string;
+  regTransporte: string;
+  cultivoNombre: string;
+  lineas: LineaManifiesto[];
+}) {
+  const doc = new jsPDF({ unit: "mm", format: "letter" });
+  const pageW = 216;
+  const marginX = 12;
+  const rightColX = 158;
+
+  const [anio, mes, dia] = fecha.split("-");
+  const MESES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+  const mesTexto = MESES[parseInt(mes, 10) - 1] ?? mes;
+
+  const totalCajas = lineas.reduce((s, l) => s + l.cajas, 0);
+  const totalTarimas = lineas.reduce((s, l) => {
+    if (!l.cajasPorPallet || l.cajasPorPallet <= 0) return s;
+    return s + l.cajas / l.cajasPorPallet;
+  }, 0);
+
+  let y = 14;
+
+  // ---- Encabezado ----
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("AGROEXPORT DE SONORA , S.A. DE C.V", marginX, y);
+  y += 5;
+  doc.setFontSize(8.5);
+  doc.text("R.F.C. ACO100902U59 CTA. EST. 61026-3 CENTRO DE PRODUCCION", marginX, y);
+
+  // Caja "LISTA DE EMPAQUE" arriba a la derecha
+  doc.rect(rightColX, 10, 46, 22);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text("LISTA DE EMPAQUE", rightColX + 23, 15, { align: "center" });
+  doc.line(rightColX, 17, rightColX + 46, 17);
+  doc.setFontSize(11);
+  doc.text(serie, rightColX + 12, 22, { align: "center" });
+  doc.text(folio, rightColX + 34, 22, { align: "center" });
+  doc.line(rightColX + 23, 17, rightColX + 23, 32);
+
+  y += 5;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  const colY1 = y;
+  doc.setFont("helvetica", "bold");
+  doc.text("OFICINA MATRIZ Y DOMICILIO FISCAL", marginX, y);
+  doc.text(`CAMPO ${campoNombre.toUpperCase()}`, marginX + 70, y);
+  doc.setFont("helvetica", "normal");
+  y += 4;
+  doc.text("GARMENDIA # 46 Esq. Tamaulipas", marginX, y);
+  doc.text("Carretera a Bahia de Kino Km. 42", marginX + 70, y);
+  y += 4;
+  doc.text("Tel (662)210-13-71, 214-89-11 Fax 214-58-99", marginX, y);
+  doc.text("Costa de Hermosillo Hermosillo,", marginX + 70, y);
+  y += 4;
+  doc.text("Hermosillo, Sonora, México", marginX, y);
+  doc.text("Sonora, México", marginX + 70, y);
+
+  // Fecha box
+  doc.setFontSize(6.5);
+  doc.text("EXPEDIDA EN HERMOSILLO, SONORA.", rightColX + 23, colY1 + 2, { align: "center" });
+  doc.setFontSize(8.5);
+  doc.setFont("helvetica", "bold");
+  doc.text("FECHA", rightColX + 23, colY1 + 6, { align: "center" });
+  doc.setFontSize(6.5);
+  doc.setFont("helvetica", "normal");
+  doc.text("DIA", rightColX + 5, colY1 + 9);
+  doc.text("MES", rightColX + 20, colY1 + 9);
+  doc.text("AÑO", rightColX + 35, colY1 + 9);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${dia}   ${mesTexto}   ${anio}`, rightColX + 23, colY1 + 13, { align: "center" });
+
+  y += 8;
+
+  // ---- Cliente ----
+  const clienteTop = y;
+  doc.rect(marginX, clienteTop, pageW - marginX * 2, 24);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("CLIENTE", pageW / 2, clienteTop + 5, { align: "center" });
+  doc.line(marginX, clienteTop + 7, pageW - marginX, clienteTop + 7);
+  doc.setFontSize(8.5);
+  doc.text(`NOMBRE:`, marginX + 2, clienteTop + 12);
+  doc.setFont("helvetica", "normal");
+  doc.text(distribuidor.toUpperCase(), marginX + 22, clienteTop + 12);
+  doc.setFont("helvetica", "bold");
+  doc.text("R.F.C.", marginX + 130, clienteTop + 12);
+  doc.text("DIRECCION:", marginX + 2, clienteTop + 17);
+  doc.setFont("helvetica", "normal");
+  doc.text(distribuidorDireccion.toUpperCase(), marginX + 24, clienteTop + 17);
+  doc.setFont("helvetica", "bold");
+  doc.text("CIUDAD:", marginX + 2, clienteTop + 22);
+  doc.setFont("helvetica", "normal");
+  doc.text(distribuidorCiudad.toUpperCase(), marginX + 20, clienteTop + 22);
+
+  y = clienteTop + 24 + 4;
+
+  // ---- Tabla ----
+  const tableTop = y;
+  const colCantidadW = 22;
+  const colDescW = 100;
+  const colParcialW = 25;
+  const colImporteW = pageW - marginX * 2 - colCantidadW - colDescW - colParcialW;
+  const tableW = pageW - marginX * 2;
+  const rowH = 6;
+  const numFilasVacias = 6;
+  const tableH = rowH * (1 + lineas.length + numFilasVacias) + 22; // +22 para el bloque de texto final
+
+  doc.rect(marginX, tableTop, tableW, rowH);
+  doc.setFontSize(8.5);
+  doc.text("CANTIDAD", marginX + colCantidadW / 2, tableTop + 4, { align: "center" });
+  doc.text("DESCRIPCION", marginX + colCantidadW + colDescW / 2, tableTop + 4, { align: "center" });
+  doc.text("PARCIAL", marginX + colCantidadW + colDescW + colParcialW / 2, tableTop + 4, { align: "center" });
+  doc.text("IMPORTE", marginX + colCantidadW + colDescW + colParcialW + colImporteW / 2, tableTop + 4, { align: "center" });
+  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
+  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
+  doc.line(
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableTop,
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableTop + rowH * (1 + lineas.length + numFilasVacias)
+  );
+
+  let filaY = tableTop + rowH;
+  doc.setFont("helvetica", "normal");
+  for (const l of lineas) {
+    doc.line(marginX, filaY, marginX + tableW, filaY);
+    const caja = CAJA_POR_DISTRIBUIDOR[distribuidor] ?? "CAJA";
+    const desc = `${cultivoNombre.toUpperCase()} CALIBRE ${l.calibreNombre} ${caja}, ${PESO_POR_CAJA_LBS} LBS`;
+    const desc2 = `LBS ETIQUETA ${distribuidor.toUpperCase()}`;
+    doc.setFontSize(8);
+    doc.text(String(l.cajas), marginX + colCantidadW / 2, filaY + 4, { align: "center" });
+    doc.text(desc, marginX + colCantidadW + colDescW / 2, filaY + 4, { align: "center" });
+    doc.text(desc2, marginX + colCantidadW + colDescW / 2, filaY + 4 + 4, { align: "center" });
+    filaY += rowH * 2;
+  }
+  for (let i = 0; i < numFilasVacias; i++) {
+    doc.line(marginX, filaY, marginX + tableW, filaY);
+    filaY += rowH;
+  }
+
+  // Bloque de texto de retorno/transporte, dentro de la ultima celda
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  let textoY = filaY - rowH * numFilasVacias + 4;
+  doc.text(`SE RETORNAN ${totalCajas} CAJAS`, marginX + 2, textoY);
+  textoY += 4;
+  doc.text(`REG TRANSP. ${regTransporte || "-"}`, marginX + 2, textoY);
+  textoY += 4;
+  doc.text(`CAMION: ${cajaTransporte || "-"}`, marginX + 2, textoY);
+  textoY += 4;
+  doc.text(`PLACAS: ${placas || "-"}`, marginX + 2, textoY);
+  textoY += 4;
+  doc.text(`CHOFER : ${chofer || "-"}`, marginX + 2, textoY);
+
+  doc.rect(marginX, tableTop, tableW, filaY - tableTop);
+
+  y = filaY + 4;
+
+  // ---- Texto legal ----
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  const legal =
+    "MANIFESTAMOS BAJO PROMESA DE DECIR VERDAD QUE LA PRESENTE OPERACIÓN NO SE TRATA DE UNA " +
+    "ENAJENACIÓN EN LOS TERMINOS DEL ARTICULO 14 DE C.F.F. TODA VEZ QUE LA PRESENTE MERCANCIA VA " +
+    "EN CONSIGNACIÓN";
+  const legalLines = doc.splitTextToSize(legal, tableW);
+  doc.text(legalLines, pageW / 2, y, { align: "center" });
+  y += legalLines.length * 4 + 3;
+
+  // ---- Totales ----
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "normal");
+  doc.text("CANTIDAD CON LETRA:", marginX, y);
+  doc.rect(marginX + 95, y - 4, 40, 6);
+  doc.text("SUB-TOTAL", marginX + 96, y);
+  doc.rect(marginX + 137, y - 4, 25, 6);
+  doc.text("0,000.00", marginX + 149, y, { align: "center" });
+  y += 6;
+  doc.setFont("helvetica", "bold");
+  doc.text("SON:", marginX + 5, y);
+  doc.setFont("helvetica", "normal");
+  doc.text(numeroATexto(0), marginX + 20, y);
+  doc.rect(marginX + 95, y - 4, 40, 6);
+  doc.text("TASA IVA 0%", marginX + 96, y);
+  y += 6;
+  doc.rect(marginX + 95, y - 4, 40, 6);
+  doc.setFont("helvetica", "bold");
+  doc.text("TOTAL", marginX + 96, y);
+  doc.rect(marginX + 137, y - 4, 25, 6);
+  doc.text("0,000.00", marginX + 149, y, { align: "center" });
+
+  y += 12;
+
+  // ---- Firma y tarimas ----
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.line(marginX + 30, y, marginX + 90, y);
+  doc.text("FIRMA", marginX + 52, y + 4);
+
+  doc.setFontSize(20);
+  doc.setFont("helvetica", "bold");
+  doc.text(String(Math.round(totalTarimas)), rightColX + 20, y - 4);
+  doc.setFontSize(7);
+  doc.text("Cantidad de tarimas entregadas", rightColX - 10, y + 2);
+
+  doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}.pdf`);
+}

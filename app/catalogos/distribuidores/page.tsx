@@ -11,6 +11,8 @@ export default function DistribuidoresPage() {
         { name: "nombre", label: "Nombre", type: "text", requerido: true },
         { name: "porcentaje_asignado", label: "% de cosecha asignado", type: "number" },
         { name: "orden", label: "Orden (en Corte diario)", type: "number" },
+        { name: "direccion", label: "Dirección (para manifiesto)", type: "text" },
+        { name: "ciudad", label: "Ciudad (para manifiesto)", type: "text" },
       ]}
     />
   );

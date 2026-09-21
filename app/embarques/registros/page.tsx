@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelEmbarques } from "@/lib/excel/embarques";
 import { generarPdfEmbarques } from "@/lib/pdf/embarques";
+import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
 
 type Opcion = { id: string; label: string };
 
@@ -71,6 +72,14 @@ export default function RegistrosEmbarquesPage() {
     consultar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function descargarManifiesto(remisionId: string) {
+    try {
+      await generarManifiestoDeRemision(supabase, remisionId);
+    } catch (e: any) {
+      setError(e.message ?? "No se pudo generar el manifiesto.");
+    }
+  }
 
   async function eliminar(id: string) {
     if (!confirm("¿Eliminar esta remisión completa? No se puede deshacer.")) return;
@@ -219,6 +228,9 @@ export default function RegistrosEmbarquesPage() {
                   <td className="px-4 py-2 text-campo-800">{t.cajas.toFixed(0)}</td>
                   <td className="px-4 py-2 text-campo-800">{t.bins > 0 ? t.bins.toFixed(0) : "—"}</td>
                   <td className="px-4 py-2 text-right">
+                    <button className="btn-secondary mr-1" onClick={() => descargarManifiesto(r.id)}>
+                      Manifiesto
+                    </button>
                     <button className="btn-danger" onClick={() => eliminar(r.id)}>
                       Eliminar
                     </button>

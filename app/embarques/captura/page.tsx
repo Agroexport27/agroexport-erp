@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CONFIG_EMBARQUES, EMPAQUE_OPCIONES } from "@/lib/embarquesConfig";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
+import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
 
 type Opcion = { id: string; label: string };
 
@@ -23,6 +24,9 @@ export default function EmbarquesPage() {
   const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
   const [manifiesto, setManifiesto] = useState("");
   const [cajaTransporte, setCajaTransporte] = useState("");
+  const [placas, setPlacas] = useState("");
+  const [choferManifiesto, setChoferManifiesto] = useState("");
+  const [regTransporte, setRegTransporte] = useState("");
   const [empaque, setEmpaque] = useState("Convencional");
 
   const [valoresCajas, setValoresCajas] = useState<Record<string, string>>({});
@@ -104,6 +108,14 @@ export default function EmbarquesPage() {
       .then(({ data }) => setCuadros((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
   }, [campoId]);
 
+  async function descargarManifiesto(remisionId: string) {
+    try {
+      await generarManifiestoDeRemision(supabase, remisionId);
+    } catch (e: any) {
+      setError(e.message ?? "No se pudo generar el manifiesto.");
+    }
+  }
+
   async function cargarRecientes() {
     setLoading(true);
     const { data, error } = await supabase
@@ -154,6 +166,9 @@ export default function EmbarquesPage() {
         manifiesto: manifiesto || null,
         cuadro_id: cuadroIds[0] ?? null,
         caja_transporte: cajaTransporte || null,
+        placas: placas || null,
+        chofer: choferManifiesto || null,
+        reg_transporte: regTransporte || null,
         campo_id: campoId,
         cultivo_id: cultivoId || null,
         empaque,
@@ -210,6 +225,9 @@ export default function EmbarquesPage() {
     );
     setManifiesto("");
     setCajaTransporte("");
+    setPlacas("");
+    setChoferManifiesto("");
+    setRegTransporte("");
     setCuadroIds([]);
     setValoresCajas({});
     setValoresBins({});
@@ -267,6 +285,18 @@ export default function EmbarquesPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Caja (unidad transporte)</label>
           <input className="input" value={cajaTransporte} onChange={(e) => setCajaTransporte(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Placas</label>
+          <input className="input" value={placas} onChange={(e) => setPlacas(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Chofer</label>
+          <input className="input" value={choferManifiesto} onChange={(e) => setChoferManifiesto(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Reg. Transporte (SCAC/CAAT/FDA)</label>
+          <input className="input" value={regTransporte} onChange={(e) => setRegTransporte(e.target.value)} />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Campo</label>
@@ -365,12 +395,13 @@ export default function EmbarquesPage() {
               <th className="px-4 py-2">Empaque</th>
               <th className="px-4 py-2">Cajas</th>
               <th className="px-4 py-2">Bins</th>
+              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={8}>Cargando...</td></tr>}
+            {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={9}>Cargando...</td></tr>}
             {!loading && recientes.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={8}>Todavía no hay remisiones.</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={9}>Todavía no hay remisiones.</td></tr>
             )}
             {recientes.map((r: any) => {
               const totalCajasR = (r.remision_detalle ?? []).reduce((s: number, d: any) => s + Number(d.cantidad_cajas ?? 0), 0);
@@ -389,6 +420,11 @@ export default function EmbarquesPage() {
                   <td className="px-4 py-2 text-campo-600">{r.empaque}</td>
                   <td className="px-4 py-2 text-campo-800">{totalCajasR.toFixed(0)}</td>
                   <td className="px-4 py-2 text-campo-800">{totalBinsR > 0 ? totalBinsR.toFixed(0) : "—"}</td>
+                  <td className="px-4 py-2 text-right">
+                    <button className="btn-secondary text-xs" onClick={() => descargarManifiesto(r.id)}>
+                      Manifiesto
+                    </button>
+                  </td>
                 </tr>
               );
             })}
