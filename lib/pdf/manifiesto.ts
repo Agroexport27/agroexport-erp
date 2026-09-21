@@ -77,21 +77,41 @@ export function generarPdfManifiesto({
   doc.setFontSize(8.5);
   doc.text("R.F.C. ACO100902U59 CTA. EST. 61026-3 CENTRO DE PRODUCCION", marginX, y);
 
-  // Caja "LISTA DE EMPAQUE" arriba a la derecha
-  doc.rect(rightColX, 10, 46, 22);
+  // Caja "LISTA DE EMPAQUE" arriba a la derecha -- una sola caja, con
+  // 3 secciones apiladas: titulo, serie/folio, y fecha (sin encimarse)
+  const boxTop = 10;
+  const boxW = 46;
+  const boxH = 34;
+  doc.rect(rightColX, boxTop, boxW, boxH);
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
-  doc.text("LISTA DE EMPAQUE", rightColX + 23, 15, { align: "center" });
-  doc.line(rightColX, 17, rightColX + 46, 17);
-  doc.setFontSize(11);
-  doc.text(serie, rightColX + 12, 22, { align: "center" });
-  doc.text(folio, rightColX + 34, 22, { align: "center" });
-  doc.line(rightColX + 23, 17, rightColX + 23, 32);
+  doc.text("LISTA DE EMPAQUE", rightColX + boxW / 2, boxTop + 5, { align: "center" });
+  doc.line(rightColX, boxTop + 7, rightColX + boxW, boxTop + 7);
+
+  doc.setFontSize(13);
+  doc.text(serie, rightColX + boxW * 0.28, boxTop + 15, { align: "center" });
+  doc.text(folio, rightColX + boxW * 0.72, boxTop + 15, { align: "center" });
+  doc.line(rightColX + boxW / 2, boxTop + 7, rightColX + boxW / 2, boxTop + 18);
+  doc.line(rightColX, boxTop + 18, rightColX + boxW, boxTop + 18);
+
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "normal");
+  doc.text("EXPEDIDA EN HERMOSILLO, SONORA.", rightColX + boxW / 2, boxTop + 21.5, { align: "center" });
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.text("FECHA", rightColX + boxW / 2, boxTop + 25.5, { align: "center" });
+  doc.setFontSize(6);
+  doc.setFont("helvetica", "normal");
+  doc.text("DIA", rightColX + boxW * 0.2, boxTop + 28.5, { align: "center" });
+  doc.text("MES", rightColX + boxW * 0.5, boxTop + 28.5, { align: "center" });
+  doc.text("AÑO", rightColX + boxW * 0.8, boxTop + 28.5, { align: "center" });
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text(`${dia}   ${mesTexto}   ${anio}`, rightColX + boxW / 2, boxTop + 32, { align: "center" });
 
   y += 5;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  const colY1 = y;
   doc.setFont("helvetica", "bold");
   doc.text("OFICINA MATRIZ Y DOMICILIO FISCAL", marginX, y);
   doc.text(`CAMPO ${campoNombre.toUpperCase()}`, marginX + 70, y);
@@ -105,18 +125,6 @@ export function generarPdfManifiesto({
   y += 4;
   doc.text("Hermosillo, Sonora, México", marginX, y);
   doc.text("Sonora, México", marginX + 70, y);
-
-  // Fecha box
-  doc.setFontSize(6.5);
-  doc.text("EXPEDIDA EN HERMOSILLO, SONORA.", rightColX + 23, colY1 + 2, { align: "center" });
-  doc.setFontSize(8.5);
-  doc.setFont("helvetica", "bold");
-  doc.text("FECHA", rightColX + 23, colY1 + 6, { align: "center" });
-  doc.setFontSize(6.5);
-  doc.setFont("helvetica", "normal");
-  doc.text("DIA", rightColX + 5, colY1 + 9);
-  doc.text("MES", rightColX + 20, colY1 + 9);
-  doc.text("AÑO", rightColX + 35, colY1 + 9);
   doc.setFontSize(9);
   doc.setFont("helvetica", "bold");
   doc.text(`${dia}   ${mesTexto}   ${anio}`, rightColX + 23, colY1 + 13, { align: "center" });
@@ -190,19 +198,21 @@ export function generarPdfManifiesto({
     filaY += rowH;
   }
 
-  // Bloque de texto de retorno/transporte, dentro de la ultima celda
+  // Bloque de texto de retorno/transporte, alineado dentro de la
+  // columna DESCRIPCION (no desde el borde izquierdo de toda la tabla)
+  const xTextoTransporte = marginX + colCantidadW + 2;
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   let textoY = filaY - rowH * numFilasVacias + 4;
-  doc.text(`SE RETORNAN ${totalCajas} CAJAS`, marginX + 2, textoY);
+  doc.text(`SE RETORNAN ${totalCajas} CAJAS`, xTextoTransporte, textoY);
   textoY += 4;
-  doc.text(`REG TRANSP. ${regTransporte || "-"}`, marginX + 2, textoY);
+  doc.text(`REG TRANSP. ${regTransporte || "-"}`, xTextoTransporte, textoY);
   textoY += 4;
-  doc.text(`CAMION: ${cajaTransporte || "-"}`, marginX + 2, textoY);
+  doc.text(`CAMION: ${cajaTransporte || "-"}`, xTextoTransporte, textoY);
   textoY += 4;
-  doc.text(`PLACAS: ${placas || "-"}`, marginX + 2, textoY);
+  doc.text(`PLACAS: ${placas || "-"}`, xTextoTransporte, textoY);
   textoY += 4;
-  doc.text(`CHOFER : ${chofer || "-"}`, marginX + 2, textoY);
+  doc.text(`CHOFER : ${chofer || "-"}`, xTextoTransporte, textoY);
 
   doc.rect(marginX, tableTop, tableW, filaY - tableTop);
 
@@ -219,27 +229,29 @@ export function generarPdfManifiesto({
   doc.text(legalLines, pageW / 2, y, { align: "center" });
   y += legalLines.length * 4 + 3;
 
-  // ---- Totales ----
+  // ---- Totales (pegados a la derecha) ----
+  const totalesLabelX = pageW - marginX - 63; // 63 = labelW(38) + valueW(25)
+  const totalesValueX = pageW - marginX - 25;
   doc.setFontSize(8);
   doc.setFont("helvetica", "normal");
   doc.text("CANTIDAD CON LETRA:", marginX, y);
-  doc.rect(marginX + 95, y - 4, 40, 6);
-  doc.text("SUB-TOTAL", marginX + 96, y);
-  doc.rect(marginX + 137, y - 4, 25, 6);
-  doc.text("0,000.00", marginX + 149, y, { align: "center" });
+  doc.rect(totalesLabelX, y - 4, 38, 6);
+  doc.text("SUB-TOTAL", totalesLabelX + 1, y);
+  doc.rect(totalesValueX, y - 4, 25, 6);
+  doc.text("0,000.00", totalesValueX + 12.5, y, { align: "center" });
   y += 6;
   doc.setFont("helvetica", "bold");
   doc.text("SON:", marginX + 5, y);
   doc.setFont("helvetica", "normal");
   doc.text(numeroATexto(0), marginX + 20, y);
-  doc.rect(marginX + 95, y - 4, 40, 6);
-  doc.text("TASA IVA 0%", marginX + 96, y);
+  doc.rect(totalesLabelX, y - 4, 38, 6);
+  doc.text("TASA IVA 0%", totalesLabelX + 1, y);
   y += 6;
-  doc.rect(marginX + 95, y - 4, 40, 6);
+  doc.rect(totalesLabelX, y - 4, 38, 6);
   doc.setFont("helvetica", "bold");
-  doc.text("TOTAL", marginX + 96, y);
-  doc.rect(marginX + 137, y - 4, 25, 6);
-  doc.text("0,000.00", marginX + 149, y, { align: "center" });
+  doc.text("TOTAL", totalesLabelX + 1, y);
+  doc.rect(totalesValueX, y - 4, 25, 6);
+  doc.text("0,000.00", totalesValueX + 12.5, y, { align: "center" });
 
   y += 12;
 
