@@ -125,9 +125,6 @@ export function generarPdfManifiesto({
   y += 4;
   doc.text("Hermosillo, Sonora, México", marginX, y);
   doc.text("Sonora, México", marginX + 70, y);
-  doc.setFontSize(9);
-  doc.setFont("helvetica", "bold");
-  doc.text(`${dia}   ${mesTexto}   ${anio}`, rightColX + 23, colY1 + 13, { align: "center" });
 
   y += 8;
 
