@@ -105,17 +105,21 @@ export default function ReportesAgroquimicosPage() {
       campoMap.set(nombreCampo, campo);
     }
 
-    return Array.from(campoMap.values()).map((c) => ({
-      nombre: c.nombre,
-      cuadros: Array.from(c.cuadros.values())
+    return Array.from(campoMap.values()).map((c) => {
+      const cuadros = Array.from(c.cuadros.values())
         .map((q) => ({
           nombre: q.nombre,
           hectareas: q.hectareas,
           productos: Array.from(q.productos.values()).sort((a, b) => b.cantidad - a.cantidad),
           total: Array.from(q.productos.values()).reduce((s, p) => s + p.cantidad, 0),
         }))
-        .sort((a, b) => b.total - a.total),
-    }));
+        .sort((a, b) => b.total - a.total);
+      return {
+        nombre: c.nombre,
+        cuadros,
+        hectareasTotal: cuadros.reduce((s, q) => s + q.hectareas, 0),
+      };
+    });
   }, [registros]);
 
   // Jerarquia 2: Campo -> Producto -> Cuadro
@@ -323,6 +327,9 @@ export default function ReportesAgroquimicosPage() {
         <details key={campo.nombre} className="card mb-2 overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-100 px-4 py-2">
             <span className="text-sm font-semibold text-campo-900">{campo.nombre}</span>
+            <span className="text-xs text-campo-600">
+              {campo.hectareasTotal > 0 ? `${campo.hectareasTotal.toFixed(1)} ha` : ""}
+            </span>
           </summary>
           <div className="px-3 py-2">
             {campo.cuadros.map((cuadro) => (
