@@ -161,7 +161,6 @@ export function generarPdfManifiesto({
   const tableW = pageW - marginX * 2;
   const rowH = 6;
   const numFilasVacias = 2;
-  const tableH = rowH * (1 + lineas.length + numFilasVacias) + 22; // +22 para el bloque de texto final
 
   doc.rect(marginX, tableTop, tableW, rowH);
   doc.setFontSize(8.5);
@@ -169,14 +168,6 @@ export function generarPdfManifiesto({
   doc.text("DESCRIPCION", marginX + colCantidadW + colDescW / 2, tableTop + 4, { align: "center" });
   doc.text("PARCIAL", marginX + colCantidadW + colDescW + colParcialW / 2, tableTop + 4, { align: "center" });
   doc.text("IMPORTE", marginX + colCantidadW + colDescW + colParcialW + colImporteW / 2, tableTop + 4, { align: "center" });
-  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
-  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
-  doc.line(
-    marginX + colCantidadW + colDescW + colParcialW,
-    tableTop,
-    marginX + colCantidadW + colDescW + colParcialW,
-    tableTop + rowH * (1 + lineas.length + numFilasVacias)
-  );
 
   let filaY = tableTop + rowH;
   doc.setFont("helvetica", "normal");
@@ -196,7 +187,19 @@ export function generarPdfManifiesto({
     filaY += rowH;
   }
 
-  doc.rect(marginX, tableTop, tableW, filaY - tableTop);
+  // Lineas verticales y marco exterior, ya con la altura real de la
+  // tabla (algunas filas ocupan 2 renglones, por eso se calculan hasta
+  // el final en vez de adivinar antes)
+  const tableBottom = filaY;
+  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableBottom);
+  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableBottom);
+  doc.line(
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableTop,
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableBottom
+  );
+  doc.rect(marginX, tableTop, tableW, tableBottom - tableTop);
 
   y = filaY + 6;
 
@@ -268,5 +271,5 @@ export function generarPdfManifiesto({
   doc.setFontSize(7);
   doc.text("Cantidad de tarimas entregadas", rightColX - 10, y + 2);
 
-  doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}.pdf`);
+  doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
 }
