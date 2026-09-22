@@ -88,13 +88,22 @@ export function generarPdfReporteAgroquimicos({
       saltoDePaginaSiHaceFalta(24);
       doc.setFontSize(8.5);
       doc.text(`  ${cuadro.nombre}`, 14, y);
+      if (cuadro.hectareas && cuadro.hectareas > 0) {
+        doc.setFontSize(7.5);
+        doc.text(`${cuadro.hectareas} ha`, 190, y, { align: "right" });
+        doc.setFontSize(8.5);
+      }
       y += 3;
 
       autoTable(doc, {
         startY: y,
         margin: { left: 20 },
-        head: [["Producto", "Cantidad"]],
-        body: cuadro.productos.map((p) => [p.nombre, `${p.cantidad.toFixed(2)} ${p.unidad}`]),
+        head: [["Producto", "Cantidad", "Cantidad/ha"]],
+        body: cuadro.productos.map((p) => [
+          p.nombre,
+          `${p.cantidad.toFixed(2)} ${p.unidad}`,
+          cuadro.hectareas && cuadro.hectareas > 0 ? `${(p.cantidad / cuadro.hectareas).toFixed(2)} ${p.unidad}/ha` : "-",
+        ]),
         styles: { fontSize: 7 },
         headStyles: { fillColor: [156, 194, 172] },
       });
