@@ -3,7 +3,7 @@ import autoTable from "jspdf-autotable";
 
 type NodoProducto = { nombre: string; cantidad: number; unidad: string };
 type NodoCuadro1 = { nombre: string; hectareas?: number; productos: NodoProducto[] };
-type NodoCampo1 = { nombre: string; cuadros: NodoCuadro1[] };
+type NodoCampo1 = { nombre: string; cuadros: NodoCuadro1[]; hectareasTotal?: number };
 
 type NodoCuadro2 = { nombre: string; hectareas?: number; cantidad: number; unidad: string };
 type NodoProducto2 = { nombre: string; total: number; cuadros: NodoCuadro2[] };
@@ -76,6 +76,11 @@ export function generarPdfReporteAgroquimicos({
     doc.setFontSize(9.5);
     doc.setTextColor(41, 58, 29);
     doc.text(campo.nombre, 14, y);
+    if (campo.hectareasTotal && campo.hectareasTotal > 0) {
+      doc.setFontSize(8);
+      doc.text(`${campo.hectareasTotal.toFixed(1)} ha`, 190, y, { align: "right" });
+      doc.setFontSize(9.5);
+    }
     doc.setTextColor(0, 0, 0);
     y += 8;
 
