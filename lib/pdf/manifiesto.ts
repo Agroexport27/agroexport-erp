@@ -1,4 +1,5 @@
 import jsPDF from "jspdf";
+import { SELLO_MANIFIESTO_PNG } from "./selloManifiestoData";
 
 // Nombre de la caja segun distribuidor (viene de la receta de materiales
 // que ya cargamos en Empaque).
@@ -159,7 +160,7 @@ export function generarPdfManifiesto({
   const colImporteW = pageW - marginX * 2 - colCantidadW - colDescW - colParcialW;
   const tableW = pageW - marginX * 2;
   const rowH = 6;
-  const numFilasVacias = 6;
+  const numFilasVacias = 2;
   const tableH = rowH * (1 + lineas.length + numFilasVacias) + 22; // +22 para el bloque de texto final
 
   doc.rect(marginX, tableTop, tableW, rowH);
@@ -195,25 +196,23 @@ export function generarPdfManifiesto({
     filaY += rowH;
   }
 
-  // Bloque de texto de retorno/transporte, alineado dentro de la
-  // columna DESCRIPCION (no desde el borde izquierdo de toda la tabla)
-  const xTextoTransporte = marginX + colCantidadW + 2;
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  let textoY = filaY - rowH * numFilasVacias + 4;
-  doc.text(`SE RETORNAN ${totalCajas} CAJAS`, xTextoTransporte, textoY);
-  textoY += 4;
-  doc.text(`REG TRANSP. ${regTransporte || "-"}`, xTextoTransporte, textoY);
-  textoY += 4;
-  doc.text(`CAMION: ${cajaTransporte || "-"}`, xTextoTransporte, textoY);
-  textoY += 4;
-  doc.text(`PLACAS: ${placas || "-"}`, xTextoTransporte, textoY);
-  textoY += 4;
-  doc.text(`CHOFER : ${chofer || "-"}`, xTextoTransporte, textoY);
-
   doc.rect(marginX, tableTop, tableW, filaY - tableTop);
 
-  y = filaY + 4;
+  y = filaY + 6;
+
+  // ---- Bloque de retorno/transporte, DEBAJO de la tabla ----
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
+  doc.text(`SE RETORNAN ${totalCajas} CAJAS`, marginX, y);
+  y += 4;
+  doc.text(`REG TRANSP. ${regTransporte || "-"}`, marginX, y);
+  y += 4;
+  doc.text(`CAMION: ${cajaTransporte || "-"}`, marginX, y);
+  y += 4;
+  doc.text(`PLACAS: ${placas || "-"}`, marginX, y);
+  y += 4;
+  doc.text(`CHOFER : ${chofer || "-"}`, marginX, y);
+  y += 6;
 
   // ---- Texto legal ----
   doc.setFont("helvetica", "bold");
@@ -252,11 +251,16 @@ export function generarPdfManifiesto({
 
   y += 12;
 
+  // ---- Sello fiscal (abajo a la izquierda) ----
+  const selloW = 38;
+  const selloH = (selloW * 173) / 323;
+  doc.addImage(SELLO_MANIFIESTO_PNG, "PNG", marginX, y - 16, selloW, selloH);
+
   // ---- Firma y tarimas ----
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.line(marginX + 30, y, marginX + 90, y);
-  doc.text("FIRMA", marginX + 52, y + 4);
+  doc.line(marginX + 60, y, marginX + 120, y);
+  doc.text("FIRMA", marginX + 84, y + 4);
 
   doc.setFontSize(20);
   doc.setFont("helvetica", "bold");
