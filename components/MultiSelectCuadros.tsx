@@ -8,10 +8,12 @@ export default function MultiSelectCuadros({
   opciones,
   seleccionados,
   onChange,
+  placeholder = "Buscar cuadro...",
 }: {
   opciones: Opcion[];
   seleccionados: string[];
   onChange: (ids: string[]) => void;
+  placeholder?: string;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [busqueda, setBusqueda] = useState("");
@@ -88,7 +90,7 @@ export default function MultiSelectCuadros({
           <input
             autoFocus
             className="input mb-2"
-            placeholder="Buscar cuadro..."
+            placeholder={placeholder}
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
           />

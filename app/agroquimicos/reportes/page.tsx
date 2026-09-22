@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelReporteAgroquimicos } from "@/lib/excel/reporteAgroquimicos";
 import { generarPdfReporteAgroquimicos } from "@/lib/pdf/reporteAgroquimicos";
+import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 
 type Opcion = { id: string; label: string };
 
@@ -23,7 +24,7 @@ export default function ReportesAgroquimicosPage() {
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
   const [tipo, setTipo] = useState<"" | "foliar" | "fertirriego">("");
-  const [productoId, setProductoId] = useState("");
+  const [productoIds, setProductoIds] = useState<string[]>([]);
 
   useEffect(() => {
     supabase
@@ -66,7 +67,7 @@ export default function ReportesAgroquimicosPage() {
       .lte("fecha", fechaFin);
 
     if (tipo) query = query.eq("tipo", tipo);
-    if (productoId) query = query.eq("producto_id", productoId);
+    if (productoIds.length > 0) query = query.in("producto_id", productoIds);
 
     const { data, error } = await query.limit(5000);
     let filtrados = (data ?? []) as any[];
@@ -268,12 +269,12 @@ export default function ReportesAgroquimicosPage() {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Producto</label>
-          <select className="input" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-            <option value="">Todos</option>
-            {productosOpciones.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </select>
+          <MultiSelectCuadros
+            opciones={productosOpciones}
+            seleccionados={productoIds}
+            onChange={setProductoIds}
+            placeholder="Buscar producto..."
+          />
         </div>
         <div className="flex flex-wrap gap-2 sm:col-span-2 md:col-span-6">
           <button className="btn-primary" onClick={consultar} disabled={loading}>
