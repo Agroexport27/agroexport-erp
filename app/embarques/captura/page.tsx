@@ -27,6 +27,8 @@ export default function EmbarquesPage() {
   const [placas, setPlacas] = useState("");
   const [choferManifiesto, setChoferManifiesto] = useState("");
   const [regTransporte, setRegTransporte] = useState("");
+  const [tipoTarima, setTipoTarima] = useState("TARIMA CHEP");
+  const [cantidadTarimas, setCantidadTarimas] = useState("");
   const [empaque, setEmpaque] = useState("Convencional");
 
   const [valoresCajas, setValoresCajas] = useState<Record<string, string>>({});
@@ -134,7 +136,23 @@ export default function EmbarquesPage() {
     cargarRecientes();
   }, []);
 
-  const config = distribuidorNombre ? CONFIG_EMBARQUES[distribuidorNombre] : null;
+  const nombreCultivoSel = (cultivos.find((c) => c.id === cultivoId)?.label ?? "").toLowerCase();
+  const esPepino = nombreCultivoSel.includes("pepino");
+
+  const config = useMemo(() => {
+    if (esPepino) {
+      // Los calibres de Pepino ya se cargan dinamico segun cultivo (arriba).
+      // Las presentaciones "RPC" son exclusivas de SunFed; los demas
+      // distribuidores solo ven los 9 calibres base.
+      const nombresBase = calibres.filter((c) => !c.nombre.toUpperCase().includes("RPC")).map((c) => c.nombre);
+      const nombresRpc = calibres.filter((c) => c.nombre.toUpperCase().includes("RPC")).map((c) => c.nombre);
+      const cajas = distribuidorNombre === "SunFed" ? [...nombresBase, ...nombresRpc] : nombresBase;
+      return { cajas, bins: [] };
+    }
+    return distribuidorNombre ? CONFIG_EMBARQUES[distribuidorNombre] : null;
+  }, [esPepino, calibres, distribuidorNombre]);
+
+  const distribuidorDeshabilitado = (nombre: string) => !esPepino && !CONFIG_EMBARQUES[nombre];
 
   const totalCajas = useMemo(
     () => Object.values(valoresCajas).reduce((s, v) => s + (parseFloat(v) || 0), 0),
@@ -169,6 +187,8 @@ export default function EmbarquesPage() {
         placas: placas || null,
         chofer: choferManifiesto || null,
         reg_transporte: regTransporte || null,
+        tipo_tarima: cantidadTarimas ? tipoTarima : null,
+        cantidad_tarimas: cantidadTarimas ? parseFloat(cantidadTarimas) : null,
         campo_id: campoId,
         cultivo_id: cultivoId || null,
         empaque,
@@ -214,12 +234,35 @@ export default function EmbarquesPage() {
     }
 
     const { error: errDet } = await supabase.from("remision_detalle").insert(detalle);
-    setGuardando(false);
     if (errDet) {
+      setGuardando(false);
       setError("Se creó la remisión pero falló el detalle: " + errDet.message);
       return;
     }
 
+    // Descuenta la tarima usada del inventario de materiales -- esto se
+    // hace aqui (Embarques) y no en Corte, porque ahi no se especifica
+    // el tipo de tarima.
+    if (cantidadTarimas && parseFloat(cantidadTarimas) > 0) {
+      const { data: materialTarima } = await supabase
+        .from("materiales_empaque")
+        .select("id")
+        .eq("nombre", tipoTarima)
+        .maybeSingle();
+      if (materialTarima) {
+        await supabase.from("movimiento_material_empaque").insert({
+          material_id: materialTarima.id,
+          campo_id: campoId,
+          fecha,
+          tipo: "salida",
+          cantidad: parseFloat(cantidadTarimas),
+          observaciones: `Tarimas entregadas en remisión (${distribuidorNombre})`,
+          origen_tipo: "embarque",
+        });
+      }
+    }
+
+    setGuardando(false);
     setMensajeExito(
       `Remisión guardada: ${totalCajas.toFixed(0)} cajas${totalBins > 0 ? `, ${totalBins.toFixed(0)} bins` : ""}.`
     );
@@ -228,6 +271,8 @@ export default function EmbarquesPage() {
     setPlacas("");
     setChoferManifiesto("");
     setRegTransporte("");
+    setTipoTarima("TARIMA CHEP");
+    setCantidadTarimas("");
     setCuadroIds([]);
     setValoresCajas({});
     setValoresBins({});
@@ -263,8 +308,8 @@ export default function EmbarquesPage() {
           <select className="input" value={distribuidorNombre} onChange={(e) => setDistribuidorNombre(e.target.value)}>
             <option value="">Selecciona...</option>
             {distribuidores.map((d) => (
-              <option key={d.id} value={d.label} disabled={!CONFIG_EMBARQUES[d.label]}>
-                {d.label}{!CONFIG_EMBARQUES[d.label] ? " (próximamente)" : ""}
+              <option key={d.id} value={d.label} disabled={distribuidorDeshabilitado(d.label)}>
+                {d.label}{distribuidorDeshabilitado(d.label) ? " (próximamente)" : ""}
               </option>
             ))}
           </select>
@@ -297,6 +342,25 @@ export default function EmbarquesPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Reg. Transporte (SCAC/CAAT/FDA)</label>
           <input className="input" value={regTransporte} onChange={(e) => setRegTransporte(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de tarima</label>
+          <select className="input" value={tipoTarima} onChange={(e) => setTipoTarima(e.target.value)}>
+            <option value="TARIMA CHEP">Tarima CHEP</option>
+            <option value="TARIMA AZUL">Tarima Azul</option>
+            <option value="TARIMA CAFE TACON">Tarima Café Tacón</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cantidad de tarimas</label>
+          <input
+            type="number"
+            step="any"
+            min={0}
+            className="input"
+            value={cantidadTarimas}
+            onChange={(e) => setCantidadTarimas(e.target.value)}
+          />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Campo</label>

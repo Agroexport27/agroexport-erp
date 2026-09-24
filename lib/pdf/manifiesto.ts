@@ -21,7 +21,6 @@ function numeroATexto(n: number): string {
 export type LineaManifiesto = {
   cajas: number;
   calibreNombre: string;
-  cajasPorPallet: number | null;
 };
 
 export function generarPdfManifiesto({
@@ -37,6 +36,7 @@ export function generarPdfManifiesto({
   chofer,
   regTransporte,
   cultivoNombre,
+  cantidadTarimas,
   lineas,
 }: {
   serie: string;
@@ -51,6 +51,7 @@ export function generarPdfManifiesto({
   chofer: string;
   regTransporte: string;
   cultivoNombre: string;
+  cantidadTarimas: number | null;
   lineas: LineaManifiesto[];
 }) {
   const doc = new jsPDF({ unit: "mm", format: "letter" });
@@ -63,10 +64,7 @@ export function generarPdfManifiesto({
   const mesTexto = MESES[parseInt(mes, 10) - 1] ?? mes;
 
   const totalCajas = lineas.reduce((s, l) => s + l.cajas, 0);
-  const totalTarimas = lineas.reduce((s, l) => {
-    if (!l.cajasPorPallet || l.cajasPorPallet <= 0) return s;
-    return s + l.cajas / l.cajasPorPallet;
-  }, 0);
+  const totalTarimas = cantidadTarimas ?? 0;
 
   let y = 14;
 
