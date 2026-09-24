@@ -97,11 +97,17 @@ export default function CorteDiarioPage() {
     if (!campoId) return;
     supabase
       .from("cuadros")
-      .select("id, nombre, orden")
+      .select("id, nombre, orden, cultivo_id")
       .eq("campo_id", campoId)
       .order("orden")
-      .then(({ data }) => setCuadros((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
-  }, [campoId]);
+      .then(({ data }) => {
+        // Candado: solo se muestran los cuadros que en verdad pertenecen
+        // al cultivo elegido (evita mezclar, ej. cuadro 31 es Amarilla,
+        // no debe aparecer si el cultivo elegido es Sandía Mini normal).
+        const filtrados = (data ?? []).filter((c: any) => !cultivoId || c.cultivo_id === cultivoId);
+        setCuadros(filtrados.map((c: any) => ({ id: c.id, label: c.nombre })));
+      });
+  }, [campoId, cultivoId]);
 
   useEffect(() => {
     if (!cultivoId) return;

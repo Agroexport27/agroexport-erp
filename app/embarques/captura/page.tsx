@@ -104,11 +104,15 @@ export default function EmbarquesPage() {
     if (!campoId) return;
     supabase
       .from("cuadros")
-      .select("id, nombre, orden")
+      .select("id, nombre, orden, cultivo_id")
       .eq("campo_id", campoId)
       .order("orden")
-      .then(({ data }) => setCuadros((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
-  }, [campoId]);
+      .then(({ data }) => {
+        // Candado: solo cuadros que en verdad pertenecen al cultivo elegido.
+        const filtrados = (data ?? []).filter((c: any) => !cultivoId || c.cultivo_id === cultivoId);
+        setCuadros(filtrados.map((c: any) => ({ id: c.id, label: c.nombre })));
+      });
+  }, [campoId, cultivoId]);
 
   async function descargarManifiesto(remisionId: string) {
     try {
