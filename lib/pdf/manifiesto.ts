@@ -36,6 +36,7 @@ export function generarPdfManifiesto({
   chofer,
   regTransporte,
   cultivoNombre,
+  tipoTarima,
   cantidadTarimas,
   lineas,
 }: {
@@ -51,6 +52,7 @@ export function generarPdfManifiesto({
   chofer: string;
   regTransporte: string;
   cultivoNombre: string;
+  tipoTarima: string | null;
   cantidadTarimas: number | null;
   lineas: LineaManifiesto[];
 }) {
@@ -268,6 +270,11 @@ export function generarPdfManifiesto({
   doc.text(String(Math.round(totalTarimas)), rightColX + 20, y - 4);
   doc.setFontSize(7);
   doc.text("Cantidad de tarimas entregadas", rightColX - 10, y + 2);
+  if (tipoTarima) {
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.text(tipoTarima, rightColX + 20, y + 7, { align: "center" });
+  }
 
   doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
 }

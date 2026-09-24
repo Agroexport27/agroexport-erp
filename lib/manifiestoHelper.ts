@@ -41,6 +41,7 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
     chofer: remision.chofer ?? "",
     regTransporte: remision.reg_transporte ?? "",
     cultivoNombre: remision.cultivos?.nombre ?? "",
+    tipoTarima: remision.tipo_tarima ?? null,
     cantidadTarimas: remision.cantidad_tarimas != null ? Number(remision.cantidad_tarimas) : null,
     lineas,
   });
