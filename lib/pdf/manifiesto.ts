@@ -29,6 +29,7 @@ export function generarPdfManifiesto({
   fecha,
   campoNombre,
   distribuidor,
+  clienteNombre,
   distribuidorDireccion,
   distribuidorCiudad,
   cajaTransporte,
@@ -45,6 +46,7 @@ export function generarPdfManifiesto({
   fecha: string; // YYYY-MM-DD
   campoNombre: string;
   distribuidor: string;
+  clienteNombre: string;
   distribuidorDireccion: string;
   distribuidorCiudad: string;
   cajaTransporte: string;
@@ -139,7 +141,7 @@ export function generarPdfManifiesto({
   doc.setFontSize(8.5);
   doc.text(`NOMBRE:`, marginX + 2, clienteTop + 12);
   doc.setFont("helvetica", "normal");
-  doc.text(distribuidor.toUpperCase(), marginX + 22, clienteTop + 12);
+  doc.text(clienteNombre.toUpperCase(), marginX + 22, clienteTop + 12);
   doc.setFont("helvetica", "bold");
   doc.text("R.F.C.", marginX + 130, clienteTop + 12);
   doc.text("DIRECCION:", marginX + 2, clienteTop + 17);
