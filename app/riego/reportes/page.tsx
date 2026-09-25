@@ -4,15 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelReporteRiego } from "@/lib/excel/reporteRiego";
 import { generarPdfReporteRiego } from "@/lib/pdf/reporteRiego";
+import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 
-type Opcion = { id: string; label: string };
+type Opcion = { id: string; label: string; grupo?: string };
 
 export default function ReportesRiegoPage() {
   const supabase = createClient();
 
   const [campos, setCampos] = useState<Opcion[]>([]);
-  const [cuadrosOpciones, setCuadrosOpciones] = useState<Opcion[]>([]);
+  const [cuadrosTodos, setCuadrosTodos] = useState<
+    { id: string; nombre: string; campoId: string; campoNombre: string }[]
+  >([]);
   const [ciclos, setCiclos] = useState<{ id: string; clave: string; fecha_inicio: string; fecha_fin: string }[]>([]);
+  const [cuadroIdsPorCiclo, setCuadroIdsPorCiclo] = useState<Record<string, Set<string>>>({});
   const [sistemaPorCuadro, setSistemaPorCuadro] = useState<
     Record<string, { caudal: number; sepGoteros: number; sepLineas: number }>
   >({});
@@ -25,7 +29,7 @@ export default function ReportesRiegoPage() {
   );
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
-  const [cuadroId, setCuadroId] = useState("");
+  const [cuadroIds, setCuadroIds] = useState<string[]>([]);
   const [cicloId, setCicloId] = useState("");
 
   useEffect(() => {
@@ -38,15 +42,36 @@ export default function ReportesRiegoPage() {
 
     supabase
       .from("cuadros")
-      .select("id, nombre, campos(nombre)")
+      .select("id, nombre, campo_id, campos(nombre)")
       .order("nombre")
-      .then(({ data }) => setCuadrosOpciones((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
+      .then(({ data }) =>
+        setCuadrosTodos(
+          ((data ?? []) as any[]).map((c: any) => ({
+            id: c.id,
+            nombre: c.nombre,
+            campoId: c.campo_id,
+            campoNombre: c.campos?.nombre ?? "Sin campo",
+          }))
+        )
+      );
 
     supabase
       .from("ciclos")
       .select("id, clave, fecha_inicio, fecha_fin")
       .order("clave", { ascending: false })
       .then(({ data }) => setCiclos(data ?? []));
+
+    supabase
+      .from("cuadro_ciclo")
+      .select("ciclo_id, cuadro_id")
+      .then(({ data }) => {
+        const mapa: Record<string, Set<string>> = {};
+        for (const r of (data ?? []) as any[]) {
+          if (!mapa[r.ciclo_id]) mapa[r.ciclo_id] = new Set();
+          mapa[r.ciclo_id].add(r.cuadro_id);
+        }
+        setCuadroIdsPorCiclo(mapa);
+      });
 
     supabase
       .from("sistema_riego_cuadro")
@@ -64,8 +89,46 @@ export default function ReportesRiegoPage() {
       });
   }, []);
 
+  // Ciclo "hermano": si eliges una temporada normal (ej. 2026-2), se
+  // incluye tambien el ciclo de solarizado que le sigue (2027-1), y
+  // viceversa, porque esos cuadros se siguen regando aunque no tengan
+  // cultivo activo.
+  function claveHermana(clave: string): string | null {
+    let m = clave.match(/^(\d{4})-2$/);
+    if (m) return `${Number(m[1]) + 1}-1`;
+    m = clave.match(/^(\d{4})-1$/);
+    if (m) return `${Number(m[1]) - 1}-2`;
+    return null;
+  }
+
+  const cuadrosOpciones: Opcion[] = useMemo(() => {
+    let permitidos: Set<string> | null = null;
+
+    if (cicloId) {
+      const ciclo = ciclos.find((c) => c.id === cicloId);
+      const ids = new Set<string>(cuadroIdsPorCiclo[cicloId] ?? []);
+      if (ciclo) {
+        const hermana = claveHermana(ciclo.clave);
+        if (hermana) {
+          const cicloHermano = ciclos.find((c) => c.clave === hermana);
+          if (cicloHermano) {
+            for (const id of cuadroIdsPorCiclo[cicloHermano.id] ?? []) ids.add(id);
+          }
+        }
+      }
+      // Si el ciclo no tiene Programa cargado todavia, no restringimos
+      // (se muestran todos) para no dejar el reporte sin opciones.
+      if (ids.size > 0) permitidos = ids;
+    }
+
+    return cuadrosTodos
+      .filter((c) => !permitidos || permitidos.has(c.id))
+      .map((c) => ({ id: c.id, label: c.nombre, grupo: c.campoNombre }));
+  }, [cuadrosTodos, cicloId, ciclos, cuadroIdsPorCiclo]);
+
   function aplicarCiclo(id: string) {
     setCicloId(id);
+    setCuadroIds([]);
     const c = ciclos.find((c) => c.id === id);
     if (c) {
       setFechaInicio(c.fecha_inicio);
@@ -78,11 +141,11 @@ export default function ReportesRiegoPage() {
     setError(null);
     let query = supabase
       .from("riego_diario")
-      .select("id, fecha, horas_riego, cuadro_id, cuadros(nombre, hectareas, campo_id, campos(nombre))")
+      .select("id, fecha, horas_riego, cuadro_id, cuadros(nombre, campo_id, campos(nombre))")
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin);
 
-    if (cuadroId) query = query.eq("cuadro_id", cuadroId);
+    if (cuadroIds.length > 0) query = query.in("cuadro_id", cuadroIds);
 
     const { data, error } = await query;
     let filtrados = (data ?? []) as any[];
@@ -105,31 +168,19 @@ export default function ReportesRiegoPage() {
   }
 
   const porCuadro = useMemo(() => {
-    const mapa = new Map<
-      string,
-      { nombre: string; campo: string; hectareas: number; horas: number; laminaHa: number; riegos: number }
-    >();
+    const mapa = new Map<string, { nombre: string; campo: string; horas: number; lamina: number; riegos: number }>();
     for (const r of registros) {
       const key = r.cuadro_id;
-      const laminaHa = laminaDe(r) ?? 0;
+      const lamina = laminaDe(r) ?? 0;
       const item =
         mapa.get(key) ??
-        {
-          nombre: r.cuadros?.nombre ?? "",
-          campo: r.cuadros?.campos?.nombre ?? "",
-          hectareas: Number(r.cuadros?.hectareas ?? 0),
-          horas: 0,
-          laminaHa: 0,
-          riegos: 0,
-        };
+        { nombre: r.cuadros?.nombre ?? "", campo: r.cuadros?.campos?.nombre ?? "", horas: 0, lamina: 0, riegos: 0 };
       item.horas += Number(r.horas_riego);
-      item.laminaHa += laminaHa;
+      item.lamina += lamina;
       item.riegos += 1;
       mapa.set(key, item);
     }
-    return Array.from(mapa.values())
-      .map((c) => ({ ...c, laminaTotal: c.laminaHa * c.hectareas }))
-      .sort((a, b) => b.horas - a.horas);
+    return Array.from(mapa.values()).sort((a, b) => b.horas - a.horas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registros, sistemaPorCuadro]);
 
@@ -145,7 +196,7 @@ export default function ReportesRiegoPage() {
   }, [registros]);
 
   const totalHoras = registros.reduce((s, r) => s + Number(r.horas_riego), 0);
-  const totalLamina = porCuadro.reduce((s, c) => s + c.laminaTotal, 0);
+  const totalLamina = registros.reduce((s, r) => s + (laminaDe(r) ?? 0), 0);
 
   const maxHorasMes = Math.max(1, ...porMes.map((m) => m.horas));
   const maxHorasCuadro = Math.max(1, ...porCuadro.map((c) => c.horas));
@@ -201,13 +252,14 @@ export default function ReportesRiegoPage() {
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
-          <select className="input" value={cuadroId} onChange={(e) => setCuadroId(e.target.value)}>
-            <option value="">Todos</option>
-            {cuadrosOpciones.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </select>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro(s)</label>
+          <MultiSelectCuadros
+            opciones={cuadrosOpciones}
+            seleccionados={cuadroIds}
+            onChange={setCuadroIds}
+            placeholder="Buscar cuadro..."
+            textoVacio="Todos los cuadros — clic para elegir"
+          />
         </div>
         <button className="btn-primary" onClick={consultar} disabled={loading}>
           {loading ? "Consultando..." : "Consultar"}
@@ -229,7 +281,7 @@ export default function ReportesRiegoPage() {
           <p className="text-xs text-campo-500">Lámina total aplicada</p>
           <p className="text-2xl font-semibold text-campo-900">{totalLamina.toFixed(1)} mm</p>
           <p className="text-[11px] text-campo-400">
-            (lámina por hectárea × hectáreas de cada cuadro, sumado; el detalle por cuadro está abajo)
+            (suma simple; para promedio por cuadro revisa la tabla de abajo)
           </p>
         </div>
       </div>
@@ -279,38 +331,32 @@ export default function ReportesRiegoPage() {
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">Detalle por cuadro</h2>
       <div className="card overflow-x-auto">
-        <table className="w-full min-w-[600px] text-sm">
+        <table className="w-full min-w-[520px] text-sm">
           <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
             <tr>
               <th className="px-4 py-2">Campo</th>
               <th className="px-4 py-2">Cuadro</th>
-              <th className="px-4 py-2">Hectáreas</th>
               <th className="px-4 py-2">No. riegos</th>
               <th className="px-4 py-2">Horas totales</th>
-              <th className="px-4 py-2">Lámina/ha (mm)</th>
-              <th className="px-4 py-2">Lámina/ha promedio por riego</th>
               <th className="px-4 py-2">Lámina total (mm)</th>
+              <th className="px-4 py-2">Lámina promedio/riego</th>
             </tr>
           </thead>
           <tbody>
             {porCuadro.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={8}>Sin datos en el rango seleccionado.</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={6}>Sin datos en el rango seleccionado.</td></tr>
             )}
             {porCuadro.map((c) => (
               <tr key={c.nombre} className="border-t border-campo-50">
                 <td className="px-4 py-2 text-campo-800">{c.campo}</td>
                 <td className="px-4 py-2 text-campo-800">{c.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{c.hectareas || "—"}</td>
                 <td className="px-4 py-2 text-campo-800">{c.riegos}</td>
                 <td className="px-4 py-2 text-campo-800">{c.horas.toFixed(1)} h</td>
                 <td className="px-4 py-2 text-campo-800">
-                  {c.laminaHa > 0 ? `${c.laminaHa.toFixed(1)} mm` : "— (falta definir sistema de riego)"}
+                  {c.lamina > 0 ? `${c.lamina.toFixed(1)} mm` : "— (falta definir sistema de riego)"}
                 </td>
                 <td className="px-4 py-2 text-campo-800">
-                  {c.laminaHa > 0 ? `${(c.laminaHa / c.riegos).toFixed(1)} mm` : "—"}
-                </td>
-                <td className="px-4 py-2 text-campo-800">
-                  {c.laminaTotal > 0 ? `${c.laminaTotal.toFixed(1)} mm` : "—"}
+                  {c.lamina > 0 ? `${(c.lamina / c.riegos).toFixed(1)} mm` : "—"}
                 </td>
               </tr>
             ))}

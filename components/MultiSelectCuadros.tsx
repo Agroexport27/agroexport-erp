@@ -9,11 +9,13 @@ export default function MultiSelectCuadros({
   seleccionados,
   onChange,
   placeholder = "Buscar cuadro...",
+  textoVacio = "General (sin cuadro) — clic para elegir",
 }: {
   opciones: Opcion[];
   seleccionados: string[];
   onChange: (ids: string[]) => void;
   placeholder?: string;
+  textoVacio?: string;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [busqueda, setBusqueda] = useState("");
@@ -63,7 +65,7 @@ export default function MultiSelectCuadros({
         onClick={() => setAbierto((a) => !a)}
       >
         {seleccionados.length === 0 && (
-          <span className="text-campo-400">General (sin cuadro) — clic para elegir</span>
+          <span className="text-campo-400">{textoVacio}</span>
         )}
         {seleccionados.map((id) => (
           <span
@@ -86,7 +88,7 @@ export default function MultiSelectCuadros({
       </div>
 
       {abierto && (
-        <div className="absolute z-20 mt-1 w-[min(20rem,90vw)] rounded-md border border-campo-200 bg-white p-2 shadow-lg">
+        <div className="absolute z-10 mt-1 w-72 rounded-md border border-campo-200 bg-white p-2 shadow-lg">
           <input
             autoFocus
             className="input mb-2"
@@ -100,11 +102,11 @@ export default function MultiSelectCuadros({
                 <p className="mb-1 text-xs font-semibold text-campo-500">
                   {grupo}
                 </p>
-                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <div className="grid grid-cols-4 gap-1">
                   {opts.map((o) => (
                     <label
                       key={o.id}
-                      className="flex items-center gap-1 whitespace-nowrap rounded px-1 py-0.5 text-sm hover:bg-campo-50"
+                      className="flex items-center gap-1 rounded px-1 py-0.5 text-sm hover:bg-campo-50"
                     >
                       <input
                         type="checkbox"
