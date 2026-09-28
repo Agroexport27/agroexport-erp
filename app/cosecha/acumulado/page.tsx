@@ -19,7 +19,9 @@ function tamanoDeCalibre(nombreCalibre: string): string | null {
 
 function esCultivoConTamano(nombre: string) {
   const n = (nombre || "").toLowerCase();
-  return n.includes("sandía mini") || n.includes("sandia mini");
+  // Cualquier variante de Sandía Mini (la normal/roja y la Amarilla) se
+  // trata exactamente igual: mismas columnas de %tamaño.
+  return n.includes("mini") || n.includes("amarilla");
 }
 
 function esCultivoPepino(nombre: string) {
@@ -57,7 +59,7 @@ export default function AcumuladoCosechaPage() {
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
   const [registros, setRegistros] = useState<any[]>([]);
-  const [variedadPorCuadro, setVariedadPorCuadro] = useState<Record<string, { variedad: string; hectareas: number }>>({});
+  const [variedadPorCuadro, setVariedadPorCuadro] = useState<Record<string, { variedad: string; hectareas: number; nombreCuadro: string }>>({});
   const [cuadrosPlantados, setCuadrosPlantados] = useState<
     { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number }[]
   >([]);
@@ -161,7 +163,7 @@ export default function AcumuladoCosechaPage() {
     }
     setCajasManualPorCorte(mapaCajasCorte);
 
-    const mapaVariedad: Record<string, { variedad: string; hectareas: number }> = {};
+    const mapaVariedad: Record<string, { variedad: string; hectareas: number; nombreCuadro: string }> = {};
     const nombreCultivoSel = (cultivos.find((c) => c.id === cultivoId)?.label ?? "").toLowerCase();
     const esVarianteSandiaMini = nombreCultivoSel.includes("sandía mini") || nombreCultivoSel.includes("sandia mini");
     const plantados: { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number }[] = [];
@@ -170,6 +172,7 @@ export default function AcumuladoCosechaPage() {
       mapaVariedad[p.cuadro_id] = {
         variedad: p.variedades?.nombre ?? "Sin variedad",
         hectareas: Number(p.hectareas ?? 0),
+        nombreCuadro: p.cuadros?.nombre ?? "",
       };
       const nombreCultivoCuadro = (p.cuadros?.cultivos?.nombre ?? "").toLowerCase();
       const esMismoCultivo = esVarianteSandiaMini
@@ -261,6 +264,9 @@ export default function AcumuladoCosechaPage() {
   const resumenVariedad = useMemo(() => {
     const calibresVistos = new Map<string, number>(); // nombre -> orden de aparicion
     const porVariedad = new Map<string, Record<string, number>>();
+    // El cuadro 31 es Sandía Mini Amarilla y debe mostrar %tamaño aunque el
+    // cultivo elegido arriba no sea Sandía Mini (solo afecta su variedad).
+    const variedadesConCuadro31 = new Set<string>();
 
     for (const r of registros) {
       if (r.tipo_unidad !== "pallet") continue;
@@ -270,6 +276,7 @@ export default function AcumuladoCosechaPage() {
       const fila = porVariedad.get(variedad) ?? {};
       fila[calibre] = (fila[calibre] ?? 0) + Number(r.cajas ?? 0);
       porVariedad.set(variedad, fila);
+      if (variedadPorCuadro[r.cuadro_id]?.nombreCuadro === "31") variedadesConCuadro31.add(variedad);
     }
 
     const calibresOrden = Array.from(calibresVistos.keys());
@@ -291,6 +298,7 @@ export default function AcumuladoCosechaPage() {
         tamano: t,
         porcentaje: v.total > 0 ? ((cajasPorTamanoV[t] ?? 0) / v.total) * 100 : 0,
       }));
+      (v as any).usaTamanoForzado = variedadesConCuadro31.has(v.variedad);
     }
 
     // Cajas equivalentes en "36s" (para Pepino) + % de empaque de CADA variedad
@@ -345,6 +353,7 @@ export default function AcumuladoCosechaPage() {
       porcentajesTamano,
       porcentajesEmpaque,
       granTotal36s,
+      hayCuadro31: variedadesConCuadro31.size > 0,
     };
   }, [registros, variedadPorCuadro]);
 
@@ -369,12 +378,32 @@ export default function AcumuladoCosechaPage() {
 
   const cultivoNombreSel = cultivos.find((c) => c.id === cultivoId)?.label ?? "";
   const esPepino = esCultivoPepino(cultivoNombreSel);
+  // El cuadro 31 (Sandía Mini Amarilla) fuerza las columnas de %tamaño aunque
+  // el cultivo elegido arriba no sea Sandía Mini — solo esa variedad las usa.
+  const mostrarTamano = esCultivoConTamano(cultivoNombreSel) || resumenVariedad.hayCuadro31;
 
   function descargarExcel() {
     generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "", esPepino });
   }
   function descargarPdf() {
-    generarPdfAcumulado({ consolidadoDiario, resumenVariedad, cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "", esPepino });
+    const distribuidorLabel = distribuidorFiltroId
+      ? distribuidores.find((d) => d.id === distribuidorFiltroId)?.label ?? "—"
+      : "Todos (sin Nacional)";
+    generarPdfAcumulado({
+      cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "",
+      cultivoLabel: cultivoNombreSel,
+      distribuidorLabel,
+      rangoLabel: `${fechaInicio} a ${fechaFin}`,
+      totalGeneral,
+      consolidadoDiario,
+      detallePorCuadro,
+      campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "",
+      cortesManuales: { cuadrosPlantados, cajasManualPorCorte, campos },
+      resumenVariedad,
+      esPepino,
+      esConTamano: mostrarTamano,
+      esConTamanoGeneral: esCultivoConTamano(cultivoNombreSel),
+    });
   }
 
   return (
@@ -573,10 +602,10 @@ export default function AcumuladoCosechaPage() {
                       {CORTES_FIJOS.map((n) => {
                         const key = `${c.cuadroId}__${n}`;
                         return (
-                          <td key={n} className="px-2 py-1 text-center">
+                          <td key={n} className="px-1 py-1 text-center">
                             <input
                               type="number"
-                              className="input w-16 px-1 py-0.5 text-center text-xs"
+                              className="input w-11 px-0.5 py-0.5 text-center text-[11px]"
                               value={cajasManualPorCorte[key] ?? ""}
                               onChange={(e) => actualizarCajaManualLocal(c.cuadroId, n, e.target.value)}
                               onBlur={(e) => guardarCajaManual(c.cuadroId, n, e.target.value)}
@@ -602,7 +631,7 @@ export default function AcumuladoCosechaPage() {
                 <th key={c} className="px-2 py-2 text-center">{c}</th>
               ))}
               <th className="px-3 py-2 text-center">Total</th>
-              {esCultivoConTamano(cultivoNombreSel) &&
+              {mostrarTamano &&
                 TAMANOS_BASE.map((t) => (
                   <th key={t} className="px-2 py-2 text-center">%{t}</th>
                 ))}
@@ -624,10 +653,10 @@ export default function AcumuladoCosechaPage() {
                   <td key={c} className="px-2 py-1 text-center text-campo-800">{v.cantidades[c] || "—"}</td>
                 ))}
                 <td className="px-3 py-1 text-center font-medium text-campo-800">{v.total.toFixed(0)}</td>
-                {esCultivoConTamano(cultivoNombreSel) &&
+                {mostrarTamano &&
                   v.porcentajesTamano?.map((pt: any) => (
                     <td key={pt.tamano} className="px-2 py-1 text-center text-campo-600">
-                      {pt.porcentaje.toFixed(1)}%
+                      {esCultivoConTamano(cultivoNombreSel) || v.usaTamanoForzado ? `${pt.porcentaje.toFixed(1)}%` : "—"}
                     </td>
                   ))}
                 {esPepino &&
@@ -653,7 +682,7 @@ export default function AcumuladoCosechaPage() {
                 </td>
               ))}
               <td className="px-3 py-1 text-center text-campo-900">{resumenVariedad.granTotal.toFixed(0)}</td>
-              {esCultivoConTamano(cultivoNombreSel) && TAMANOS_BASE.map((t) => <td key={t} />)}
+              {mostrarTamano && TAMANOS_BASE.map((t) => <td key={t} />)}
               {esPepino &&
                 resumenVariedad.porcentajesEmpaque.map((pe: any) => (
                   <td key={`tot-pct-${pe.calibre}`} className="px-2 py-1 text-center text-campo-700">
