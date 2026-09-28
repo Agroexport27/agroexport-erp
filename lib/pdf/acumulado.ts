@@ -20,6 +20,7 @@ export function generarPdfAcumulado({
   resumenVariedad,
   esPepino,
   esConTamano,
+  esConTamanoGeneral,
 }: {
   cicloLabel: string;
   cultivoLabel: string;
