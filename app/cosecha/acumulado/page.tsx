@@ -22,6 +22,25 @@ function esCultivoConTamano(nombre: string) {
   return n.includes("sandía mini") || n.includes("sandia mini");
 }
 
+function esCultivoPepino(nombre: string) {
+  return (nombre || "").toLowerCase().includes("pepino");
+}
+
+// Piezas (pepinos) por caja de cada empaque, para convertir a su
+// equivalente en cajas de "36" (36 piezas). Factor = piezas / 36.
+// TODO: completar con la tabla completa que Dionisio compartió en PDF —
+// por ahora solo estan los 2 ejemplos que dio (RPC 62 y RPC 72).
+const PIEZAS_POR_CAJA_PEPINO: Record<string, number> = {
+  "RPC 62": 62,
+  "RPC 72": 72,
+};
+function factor36sDe(nombreCalibre: string): number | null {
+  const n = (nombreCalibre ?? "").trim().toUpperCase();
+  const piezas = PIEZAS_POR_CAJA_PEPINO[n];
+  if (!piezas) return null;
+  return piezas / 36;
+}
+
 export default function AcumuladoCosechaPage() {
   const supabase = createClient();
 
@@ -33,7 +52,10 @@ export default function AcumuladoCosechaPage() {
   const [distribuidorFiltroId, setDistribuidorFiltroId] = useState("");
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [campoDetalleId, setCampoDetalleId] = useState("");
-  const [notasCorte, setNotasCorte] = useState<Record<string, string>>({}); // key: `${cuadroId}__${numero}`
+  const [asignarCuadroId, setAsignarCuadroId] = useState("");
+  const [asignarFecha, setAsignarFecha] = useState("");
+  const [asignarNumero, setAsignarNumero] = useState("1");
+  const [guardandoAsignacion, setGuardandoAsignacion] = useState(false);
 
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
@@ -159,17 +181,6 @@ export default function AcumuladoCosechaPage() {
     setVariedadPorCuadro(mapaVariedad);
     setCuadrosPlantados(plantados);
     setRegistros(corte ?? []);
-
-    const { data: notas } = await supabase
-      .from("acumulado_notas_corte")
-      .select("cuadro_id, numero_corte, texto")
-      .eq("ciclo_id", cicloId);
-    const mapaNotas: Record<string, string> = {};
-    for (const n of (notas ?? []) as any[]) {
-      mapaNotas[`${n.cuadro_id}__${n.numero_corte}`] = n.texto ?? "";
-    }
-    setNotasCorte(mapaNotas);
-
     setLoading(false);
   }
 
@@ -275,6 +286,20 @@ export default function AcumuladoCosechaPage() {
       }));
     }
 
+    // Cajas equivalentes en "36s" (para Pepino) + % de empaque de CADA variedad
+    for (const v of variedades) {
+      let cajas36s = 0;
+      for (const c of calibresOrden) {
+        const f = factor36sDe(c);
+        if (f) cajas36s += (v.cantidades[c] ?? 0) * f;
+      }
+      (v as any).cajas36s = cajas36s;
+      (v as any).porcentajesEmpaque = calibresOrden.map((c) => ({
+        calibre: c,
+        porcentaje: v.total > 0 ? ((v.cantidades[c] ?? 0) / v.total) * 100 : 0,
+      }));
+    }
+
     const totalesPorCalibre: Record<string, number> = {};
     for (const v of variedades) {
       for (const c of calibresOrden) {
@@ -296,27 +321,71 @@ export default function AcumuladoCosechaPage() {
       porcentaje: granTotal > 0 ? ((cajasPorTamano[t] ?? 0) / granTotal) * 100 : 0,
     }));
 
-    return { calibresOrden, variedades, totalesPorCalibre, granTotal, porcentajesTamano };
+    // % de empaque general (sobre el total, sin agrupar por tamaño) — util para Pepino
+    const porcentajesEmpaque = calibresOrden.map((c) => ({
+      calibre: c,
+      cajas: totalesPorCalibre[c] ?? 0,
+      porcentaje: granTotal > 0 ? ((totalesPorCalibre[c] ?? 0) / granTotal) * 100 : 0,
+    }));
+
+    const granTotal36s = variedades.reduce((s, v: any) => s + (v.cajas36s ?? 0), 0);
+
+    return {
+      calibresOrden,
+      variedades,
+      totalesPorCalibre,
+      granTotal,
+      porcentajesTamano,
+      porcentajesEmpaque,
+      granTotal36s,
+    };
   }, [registros, variedadPorCuadro]);
 
-  // Los renglones de corte (1er, 2do, 3er, 4to, 5to) son texto libre,
-  // llenado a mano -- se guardan por ciclo+cuadro+numero.
+  // ---- Desglose por numero de corte (1er, 2do, 3er...) ----
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
+  const porNumeroCortePorCuadro = useMemo(() => {
+    const mapa: Record<string, Record<number, number>> = {};
+    for (const r of registros) {
+      const cuadroId = r.cuadro_id;
+      const n = r.numero_corte ?? 1;
+      mapa[cuadroId] = mapa[cuadroId] ?? {};
+      mapa[cuadroId][n] = (mapa[cuadroId][n] ?? 0) + Number(r.cajas ?? 0);
+    }
+    return mapa;
+  }, [registros]);
 
-  async function guardarNotaCorte(cuadroId: string, numero: number, texto: string) {
-    await supabase
-      .from("acumulado_notas_corte")
-      .upsert(
-        { ciclo_id: cicloId, cuadro_id: cuadroId, numero_corte: numero, texto },
-        { onConflict: "ciclo_id,cuadro_id,numero_corte" }
-      );
+  const fechasDelCuadroAsignar = useMemo(() => {
+    return Array.from(new Set(registros.filter((r) => r.cuadro_id === asignarCuadroId).map((r) => r.fecha))).sort();
+  }, [registros, asignarCuadroId]);
+
+  async function guardarAsignacionCorte() {
+    if (!asignarCuadroId || !asignarFecha || !asignarNumero) {
+      setError("Elige cuadro, fecha y número de corte para asignar.");
+      return;
+    }
+    setGuardandoAsignacion(true);
+    setError(null);
+    const { error } = await supabase
+      .from("corte_diario")
+      .update({ numero_corte: parseInt(asignarNumero, 10) || 1 })
+      .eq("cuadro_id", asignarCuadroId)
+      .eq("fecha", asignarFecha);
+    setGuardandoAsignacion(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    consultar();
   }
+
+  const cultivoNombreSel = cultivos.find((c) => c.id === cultivoId)?.label ?? "";
+  const esPepino = esCultivoPepino(cultivoNombreSel);
 
   function descargarExcel() {
-    generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "" });
+    generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "", esPepino });
   }
   function descargarPdf() {
-    generarPdfAcumulado({ consolidadoDiario, resumenVariedad, cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "" });
+    generarPdfAcumulado({ consolidadoDiario, resumenVariedad, cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "", esPepino });
   }
 
   return (
@@ -428,6 +497,52 @@ export default function AcumuladoCosechaPage() {
         </table>
       </div>
 
+      {!esPepino && (
+        <>
+          <h2 className="mb-2 text-sm font-semibold text-campo-800">Asignar número de corte</h2>
+          <div className="card mb-6 flex flex-wrap items-end gap-3 p-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
+              <select
+                className="input w-32"
+                value={asignarCuadroId}
+                onChange={(e) => {
+                  setAsignarCuadroId(e.target.value);
+                  setAsignarFecha("");
+                }}
+              >
+                <option value="">Selecciona...</option>
+                {cuadrosPlantados.map((c) => (
+                  <option key={c.cuadroId} value={c.cuadroId}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-campo-600">Fecha</label>
+              <select className="input w-36" value={asignarFecha} onChange={(e) => setAsignarFecha(e.target.value)}>
+                <option value="">Selecciona...</option>
+                {fechasDelCuadroAsignar.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-campo-600">Número de corte</label>
+              <input
+                type="number"
+                min={1}
+                className="input w-24"
+                value={asignarNumero}
+                onChange={(e) => setAsignarNumero(e.target.value)}
+              />
+            </div>
+            <button className="btn-primary" onClick={guardarAsignacionCorte} disabled={guardandoAsignacion}>
+              {guardandoAsignacion ? "Guardando..." : "Asignar"}
+            </button>
+          </div>
+        </>
+      )}
+
       <h2 className="mb-2 text-sm font-semibold text-campo-800">Detalle por cuadro</h2>
       <div className="mb-2">
         <select className="input max-w-xs" value={campoDetalleId} onChange={(e) => setCampoDetalleId(e.target.value)}>
@@ -473,36 +588,28 @@ export default function AcumuladoCosechaPage() {
                 </td>
               ))}
             </tr>
-            <tr className="border-t border-campo-50 bg-green-50 text-xs">
-              <td className="px-3 py-1 font-bold text-green-700">Cajas/ha</td>
+            <tr className="border-t border-campo-50 text-xs">
+              <td className="px-3 py-1 text-campo-600">Cajas/ha</td>
               {detallePorCuadro.cuadrosInfo.map((c) => {
                 const total = detallePorCuadro.totalPorCuadro[c.id] ?? 0;
                 return (
-                  <td key={c.id} className="px-2 py-1 text-center font-bold text-green-700">
+                  <td key={c.id} className="px-2 py-1 text-center text-campo-600">
                     {c.hectareas > 0 ? (total / c.hectareas).toFixed(1) : "—"}
                   </td>
                 );
               })}
             </tr>
-            {CORTES_FIJOS.map((n, i) => (
-              <tr key={n} className={i === 0 ? "border-t border-campo-100 text-xs" : "text-xs"}>
-                <td className="px-3 py-1 text-campo-600">{["1er", "2do", "3er", "4to", "5to"][i]} corte</td>
-                {detallePorCuadro.cuadrosInfo.map((c) => {
-                  const key = `${c.id}__${n}`;
-                  return (
-                    <td key={c.id} className="px-0.5 py-1">
-                      <input
-                        type="text"
-                        className="input w-10 px-1 text-center text-xs"
-                        value={notasCorte[key] ?? ""}
-                        onChange={(e) => setNotasCorte({ ...notasCorte, [key]: e.target.value })}
-                        onBlur={(e) => guardarNotaCorte(c.id, n, e.target.value)}
-                      />
+            {!esPepino &&
+              CORTES_FIJOS.map((n, i) => (
+                <tr key={n} className={i === 0 ? "border-t border-campo-100 text-xs" : "text-xs"}>
+                  <td className="px-3 py-1 text-campo-600">{["1er", "2do", "3er", "4to", "5to"][i]} corte</td>
+                  {detallePorCuadro.cuadrosInfo.map((c) => (
+                    <td key={c.id} className="px-2 py-1 text-center text-campo-600">
+                      {porNumeroCortePorCuadro[c.id]?.[n]?.toFixed(0) || "—"}
                     </td>
-                  );
-                })}
-              </tr>
-            ))}
+                  ))}
+                </tr>
+              ))}
           </tfoot>
         </table>
       </div>
@@ -517,10 +624,15 @@ export default function AcumuladoCosechaPage() {
                 <th key={c} className="px-2 py-2 text-center">{c}</th>
               ))}
               <th className="px-3 py-2 text-center">Total</th>
-              {esCultivoConTamano(cultivos.find((c) => c.id === cultivoId)?.label ?? "") &&
+              {esCultivoConTamano(cultivoNombreSel) &&
                 TAMANOS_BASE.map((t) => (
                   <th key={t} className="px-2 py-2 text-center">%{t}</th>
                 ))}
+              {esPepino &&
+                resumenVariedad.calibresOrden.map((c) => (
+                  <th key={`pct-${c}`} className="px-2 py-2 text-center">%{c}</th>
+                ))}
+              {esPepino && <th className="px-2 py-2 text-center">Cajas 36s equiv.</th>}
             </tr>
           </thead>
           <tbody>
@@ -534,12 +646,23 @@ export default function AcumuladoCosechaPage() {
                   <td key={c} className="px-2 py-1 text-center text-campo-800">{v.cantidades[c] || "—"}</td>
                 ))}
                 <td className="px-3 py-1 text-center font-medium text-campo-800">{v.total.toFixed(0)}</td>
-                {esCultivoConTamano(cultivos.find((c) => c.id === cultivoId)?.label ?? "") &&
+                {esCultivoConTamano(cultivoNombreSel) &&
                   v.porcentajesTamano?.map((pt: any) => (
                     <td key={pt.tamano} className="px-2 py-1 text-center text-campo-600">
                       {pt.porcentaje.toFixed(1)}%
                     </td>
                   ))}
+                {esPepino &&
+                  v.porcentajesEmpaque?.map((pe: any) => (
+                    <td key={`pct-${pe.calibre}`} className="px-2 py-1 text-center text-campo-600">
+                      {pe.porcentaje.toFixed(1)}%
+                    </td>
+                  ))}
+                {esPepino && (
+                  <td className="px-2 py-1 text-center font-medium text-campo-700">
+                    {v.cajas36s > 0 ? v.cajas36s.toFixed(1) : "—"}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -552,10 +675,22 @@ export default function AcumuladoCosechaPage() {
                 </td>
               ))}
               <td className="px-3 py-1 text-center text-campo-900">{resumenVariedad.granTotal.toFixed(0)}</td>
+              {esCultivoConTamano(cultivoNombreSel) && TAMANOS_BASE.map((t) => <td key={t} />)}
+              {esPepino &&
+                resumenVariedad.porcentajesEmpaque.map((pe: any) => (
+                  <td key={`tot-pct-${pe.calibre}`} className="px-2 py-1 text-center text-campo-700">
+                    {pe.porcentaje.toFixed(1)}%
+                  </td>
+                ))}
+              {esPepino && (
+                <td className="px-2 py-1 text-center text-campo-900">
+                  {resumenVariedad.granTotal36s > 0 ? resumenVariedad.granTotal36s.toFixed(1) : "—"}
+                </td>
+              )}
             </tr>
           </tfoot>
         </table>
-        {esCultivoConTamano(cultivos.find((c) => c.id === cultivoId)?.label ?? "") && (
+        {esCultivoConTamano(cultivoNombreSel) && (
           <div className="flex flex-wrap gap-4 border-t border-campo-100 px-4 py-3 text-xs text-campo-700">
             <span className="font-medium text-campo-600">% por tamaño (general):</span>
             {resumenVariedad.porcentajesTamano.map((t) => (
@@ -563,6 +698,19 @@ export default function AcumuladoCosechaPage() {
                 <strong>{t.tamano}:</strong> {t.porcentaje.toFixed(1)}%
               </span>
             ))}
+          </div>
+        )}
+        {esPepino && (
+          <div className="flex flex-wrap gap-4 border-t border-campo-100 px-4 py-3 text-xs text-campo-700">
+            <span className="font-medium text-campo-600">% por empaque (general):</span>
+            {resumenVariedad.porcentajesEmpaque.map((pe: any) => (
+              <span key={pe.calibre}>
+                <strong>{pe.calibre}:</strong> {pe.porcentaje.toFixed(1)}%
+              </span>
+            ))}
+            <span className="ml-4">
+              <strong>Total en cajas 36s:</strong> {resumenVariedad.granTotal36s.toFixed(1)}
+            </span>
           </div>
         )}
       </div>

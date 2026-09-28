@@ -5,10 +5,12 @@ export function generarPdfAcumulado({
   consolidadoDiario,
   resumenVariedad,
   cicloLabel,
+  esPepino,
 }: {
   consolidadoDiario: any;
   resumenVariedad: any;
   cicloLabel: string;
+  esPepino?: boolean;
 }) {
   const doc = new jsPDF({ orientation: "landscape" });
 
@@ -41,19 +43,26 @@ export function generarPdfAcumulado({
   doc.addPage();
   doc.setFontSize(12);
   doc.text("% Resumen por variedad", 14, 16);
+  const encabezadosPct = esPepino ? resumenVariedad.calibresOrden.map((c: string) => `%${c}`) : [];
+  const encabezado36s = esPepino ? ["Cajas 36s"] : [];
+
   autoTable(doc, {
     startY: 21,
-    head: [["Variedad", ...resumenVariedad.calibresOrden, "Total"]],
+    head: [["Variedad", ...resumenVariedad.calibresOrden, "Total", ...encabezadosPct, ...encabezado36s]],
     body: [
       ...resumenVariedad.variedades.map((v: any) => [
         v.variedad,
         ...resumenVariedad.calibresOrden.map((c: string) => v.cantidades[c] || ""),
         v.total.toFixed(0),
+        ...(esPepino ? (v.porcentajesEmpaque ?? []).map((pe: any) => `${pe.porcentaje.toFixed(1)}%`) : []),
+        ...(esPepino ? [v.cajas36s > 0 ? v.cajas36s.toFixed(1) : ""] : []),
       ]),
       [
         "TOTAL",
         ...resumenVariedad.calibresOrden.map((c: string) => resumenVariedad.totalesPorCalibre[c]?.toFixed(0) || ""),
         resumenVariedad.granTotal.toFixed(0),
+        ...(esPepino ? (resumenVariedad.porcentajesEmpaque ?? []).map((pe: any) => `${pe.porcentaje.toFixed(1)}%`) : []),
+        ...(esPepino ? [resumenVariedad.granTotal36s > 0 ? resumenVariedad.granTotal36s.toFixed(1) : ""] : []),
       ],
     ],
     styles: { fontSize: 7, halign: "center" },
@@ -62,13 +71,15 @@ export function generarPdfAcumulado({
   });
 
   const y = (doc as any).lastAutoTable.finalY + 10;
-  doc.setFontSize(10);
-  doc.text("% por tamaño (general):", 14, y);
-  doc.setFontSize(9);
-  const texto = resumenVariedad.porcentajesTamano
-    .map((t: any) => `${t.tamano}: ${t.porcentaje.toFixed(1)}%`)
-    .join("    ");
-  doc.text(texto, 14, y + 6);
+  if (!esPepino) {
+    doc.setFontSize(10);
+    doc.text("% por tamaño (general):", 14, y);
+    doc.setFontSize(9);
+    const texto = resumenVariedad.porcentajesTamano
+      .map((t: any) => `${t.tamano}: ${t.porcentaje.toFixed(1)}%`)
+      .join("    ");
+    doc.text(texto, 14, y + 6);
+  }
 
   doc.save(`acumulado_${new Date().toISOString().slice(0, 10)}.pdf`);
 }

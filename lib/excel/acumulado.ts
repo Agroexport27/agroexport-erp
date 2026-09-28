@@ -5,11 +5,13 @@ export function generarExcelAcumulado({
   detallePorCuadro,
   resumenVariedad,
   campoDetalleNombre,
+  esPepino,
 }: {
   consolidadoDiario: any;
   detallePorCuadro: any;
   resumenVariedad: any;
   campoDetalleNombre: string;
+  esPepino?: boolean;
 }) {
   const libro = XLSX.utils.book_new();
 
@@ -45,13 +47,26 @@ export function generarExcelAcumulado({
     const fila: any = { Variedad: v.variedad };
     for (const c of resumenVariedad.calibresOrden) fila[c] = v.cantidades[c] || 0;
     fila["Total"] = v.total;
+    if (esPepino) {
+      for (const pe of v.porcentajesEmpaque ?? []) {
+        fila[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
+      }
+      fila["Cajas 36s equiv."] = Number((v.cajas36s ?? 0).toFixed(1));
+    }
     return fila;
   });
-  filasResumen.push({
+  const filaTotal: any = {
     Variedad: "TOTAL",
     ...Object.fromEntries(resumenVariedad.calibresOrden.map((c: string) => [c, resumenVariedad.totalesPorCalibre[c] || 0])),
     Total: resumenVariedad.granTotal,
-  });
+  };
+  if (esPepino) {
+    for (const pe of resumenVariedad.porcentajesEmpaque ?? []) {
+      filaTotal[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
+    }
+    filaTotal["Cajas 36s equiv."] = Number((resumenVariedad.granTotal36s ?? 0).toFixed(1));
+  }
+  filasResumen.push(filaTotal);
   XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filasResumen), "% Resumen");
 
   XLSX.writeFile(libro, `acumulado_${new Date().toISOString().slice(0, 10)}.xlsx`);
