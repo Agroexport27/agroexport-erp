@@ -52,10 +52,7 @@ export default function AcumuladoCosechaPage() {
   const [distribuidorFiltroId, setDistribuidorFiltroId] = useState("");
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [campoDetalleId, setCampoDetalleId] = useState("");
-  const [asignarCuadroId, setAsignarCuadroId] = useState("");
-  const [asignarFecha, setAsignarFecha] = useState("");
-  const [asignarNumero, setAsignarNumero] = useState("1");
-  const [guardandoAsignacion, setGuardandoAsignacion] = useState(false);
+  const [cajasManualPorCorte, setCajasManualPorCorte] = useState<Record<string, string>>({});
 
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
@@ -140,11 +137,15 @@ export default function AcumuladoCosechaPage() {
       if (nacional) query = query.neq("distribuidor_id", nacional.id);
     }
 
-    const [{ data: corte, error: errCorte }, { data: prog }] = await Promise.all([
+    const [{ data: corte, error: errCorte }, { data: prog }, { data: cajasCorte }] = await Promise.all([
       query,
       supabase
         .from("cuadro_ciclo")
         .select("cuadro_id, hectareas, variedades(nombre), cuadros(nombre, campo_id, cultivo_id, cultivos(nombre))")
+        .eq("ciclo_id", cicloId),
+      supabase
+        .from("acumulado_cajas_corte")
+        .select("cuadro_id, numero_corte, cajas")
         .eq("ciclo_id", cicloId),
     ]);
 
@@ -153,6 +154,12 @@ export default function AcumuladoCosechaPage() {
       setLoading(false);
       return;
     }
+
+    const mapaCajasCorte: Record<string, string> = {};
+    for (const r of (cajasCorte ?? []) as any[]) {
+      mapaCajasCorte[`${r.cuadro_id}__${r.numero_corte}`] = r.cajas != null ? String(r.cajas) : "";
+    }
+    setCajasManualPorCorte(mapaCajasCorte);
 
     const mapaVariedad: Record<string, { variedad: string; hectareas: number }> = {};
     const nombreCultivoSel = (cultivos.find((c) => c.id === cultivoId)?.label ?? "").toLowerCase();
@@ -341,41 +348,23 @@ export default function AcumuladoCosechaPage() {
     };
   }, [registros, variedadPorCuadro]);
 
-  // ---- Desglose por numero de corte (1er, 2do, 3er...) ----
+  // ---- Cortes por número (1er, 2do, 3er...) — captura MANUAL, guardada en acumulado_cajas_corte ----
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
-  const porNumeroCortePorCuadro = useMemo(() => {
-    const mapa: Record<string, Record<number, number>> = {};
-    for (const r of registros) {
-      const cuadroId = r.cuadro_id;
-      const n = r.numero_corte ?? 1;
-      mapa[cuadroId] = mapa[cuadroId] ?? {};
-      mapa[cuadroId][n] = (mapa[cuadroId][n] ?? 0) + Number(r.cajas ?? 0);
-    }
-    return mapa;
-  }, [registros]);
 
-  const fechasDelCuadroAsignar = useMemo(() => {
-    return Array.from(new Set(registros.filter((r) => r.cuadro_id === asignarCuadroId).map((r) => r.fecha))).sort();
-  }, [registros, asignarCuadroId]);
+  function actualizarCajaManualLocal(cuadroId: string, numero: number, valor: string) {
+    setCajasManualPorCorte((prev) => ({ ...prev, [`${cuadroId}__${numero}`]: valor }));
+  }
 
-  async function guardarAsignacionCorte() {
-    if (!asignarCuadroId || !asignarFecha || !asignarNumero) {
-      setError("Elige cuadro, fecha y número de corte para asignar.");
-      return;
-    }
-    setGuardandoAsignacion(true);
-    setError(null);
+  async function guardarCajaManual(cuadroId: string, numero: number, valor: string) {
+    if (!cicloId) return;
+    const cajas = valor.trim() === "" ? null : Number(valor);
     const { error } = await supabase
-      .from("corte_diario")
-      .update({ numero_corte: parseInt(asignarNumero, 10) || 1 })
-      .eq("cuadro_id", asignarCuadroId)
-      .eq("fecha", asignarFecha);
-    setGuardandoAsignacion(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    consultar();
+      .from("acumulado_cajas_corte")
+      .upsert(
+        { ciclo_id: cicloId, cuadro_id: cuadroId, numero_corte: numero, cajas },
+        { onConflict: "ciclo_id,cuadro_id,numero_corte" }
+      );
+    if (error) setError(error.message);
   }
 
   const cultivoNombreSel = cultivos.find((c) => c.id === cultivoId)?.label ?? "";
@@ -497,52 +486,6 @@ export default function AcumuladoCosechaPage() {
         </table>
       </div>
 
-      {!esPepino && (
-        <>
-          <h2 className="mb-2 text-sm font-semibold text-campo-800">Asignar número de corte</h2>
-          <div className="card mb-6 flex flex-wrap items-end gap-3 p-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
-              <select
-                className="input w-32"
-                value={asignarCuadroId}
-                onChange={(e) => {
-                  setAsignarCuadroId(e.target.value);
-                  setAsignarFecha("");
-                }}
-              >
-                <option value="">Selecciona...</option>
-                {cuadrosPlantados.map((c) => (
-                  <option key={c.cuadroId} value={c.cuadroId}>{c.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-campo-600">Fecha</label>
-              <select className="input w-36" value={asignarFecha} onChange={(e) => setAsignarFecha(e.target.value)}>
-                <option value="">Selecciona...</option>
-                {fechasDelCuadroAsignar.map((f) => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-campo-600">Número de corte</label>
-              <input
-                type="number"
-                min={1}
-                className="input w-24"
-                value={asignarNumero}
-                onChange={(e) => setAsignarNumero(e.target.value)}
-              />
-            </div>
-            <button className="btn-primary" onClick={guardarAsignacionCorte} disabled={guardandoAsignacion}>
-              {guardandoAsignacion ? "Guardando..." : "Asignar"}
-            </button>
-          </div>
-        </>
-      )}
-
       <h2 className="mb-2 text-sm font-semibold text-campo-800">Detalle por cuadro</h2>
       <div className="mb-2">
         <select className="input max-w-xs" value={campoDetalleId} onChange={(e) => setCampoDetalleId(e.target.value)}>
@@ -599,20 +542,55 @@ export default function AcumuladoCosechaPage() {
                 );
               })}
             </tr>
-            {!esPepino &&
-              CORTES_FIJOS.map((n, i) => (
-                <tr key={n} className={i === 0 ? "border-t border-campo-100 text-xs" : "text-xs"}>
-                  <td className="px-3 py-1 text-campo-600">{["1er", "2do", "3er", "4to", "5to"][i]} corte</td>
-                  {detallePorCuadro.cuadrosInfo.map((c) => (
-                    <td key={c.id} className="px-2 py-1 text-center text-campo-600">
-                      {porNumeroCortePorCuadro[c.id]?.[n]?.toFixed(0) || "—"}
-                    </td>
-                  ))}
-                </tr>
-              ))}
           </tfoot>
         </table>
       </div>
+
+      {!esPepino && (
+        <>
+          <h2 className="mb-2 text-sm font-semibold text-campo-800">Cortes por número (manual)</h2>
+          <div className="card mb-6 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
+                <tr>
+                  <th className="px-3 py-2">Campo</th>
+                  <th className="px-3 py-2">Cuadro</th>
+                  {["1er", "2do", "3er", "4to", "5to"].map((et) => (
+                    <th key={et} className="px-2 py-2 text-center">{et} corte</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cuadrosPlantados.length === 0 && (
+                  <tr><td className="px-3 py-4 text-campo-400" colSpan={7}>Sin cuadros plantados en este ciclo.</td></tr>
+                )}
+                {[...cuadrosPlantados]
+                  .sort((a, b) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true }))
+                  .map((c) => (
+                    <tr key={c.cuadroId} className="border-t border-campo-50">
+                      <td className="px-3 py-1 text-campo-600">{campos.find((cc) => cc.id === c.campoId)?.label ?? ""}</td>
+                      <td className="px-3 py-1 text-campo-800">{c.nombre}</td>
+                      {CORTES_FIJOS.map((n) => {
+                        const key = `${c.cuadroId}__${n}`;
+                        return (
+                          <td key={n} className="px-2 py-1 text-center">
+                            <input
+                              type="number"
+                              className="input w-16 px-1 py-0.5 text-center text-xs"
+                              value={cajasManualPorCorte[key] ?? ""}
+                              onChange={(e) => actualizarCajaManualLocal(c.cuadroId, n, e.target.value)}
+                              onBlur={(e) => guardarCajaManual(c.cuadroId, n, e.target.value)}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">% Resumen — por variedad</h2>
       <div className="card mb-6 overflow-x-auto">
