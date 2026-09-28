@@ -165,7 +165,6 @@ export default function AcumuladoCosechaPage() {
 
     const mapaVariedad: Record<string, { variedad: string; hectareas: number; nombreCuadro: string }> = {};
     const nombreCultivoSel = (cultivos.find((c) => c.id === cultivoId)?.label ?? "").toLowerCase();
-    const esVarianteSandiaMini = nombreCultivoSel.includes("sandía mini") || nombreCultivoSel.includes("sandia mini");
     const plantados: { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number }[] = [];
 
     for (const p of (prog ?? []) as any[]) {
@@ -174,10 +173,11 @@ export default function AcumuladoCosechaPage() {
         hectareas: Number(p.hectareas ?? 0),
         nombreCuadro: p.cuadros?.nombre ?? "",
       };
+      // Coincidencia EXACTA de cultivo — "Sandía Mini" y "Sandía Mini
+      // Amarilla" son cultivos distintos, cada uno con sus propios cuadros
+      // (aunque compartan el mismo tratamiento de %tamaño en el resumen).
       const nombreCultivoCuadro = (p.cuadros?.cultivos?.nombre ?? "").toLowerCase();
-      const esMismoCultivo = esVarianteSandiaMini
-        ? nombreCultivoCuadro.includes("sandía mini") || nombreCultivoCuadro.includes("sandia mini")
-        : nombreCultivoCuadro === nombreCultivoSel;
+      const esMismoCultivo = nombreCultivoCuadro === nombreCultivoSel;
       if (esMismoCultivo) {
         plantados.push({
           cuadroId: p.cuadro_id,
@@ -357,6 +357,54 @@ export default function AcumuladoCosechaPage() {
     };
   }, [registros, variedadPorCuadro]);
 
+  // ---- % Resumen, desglosado por DISTRIBUIDOR (mismo cálculo que arriba, pero por distribuidor) ----
+  const resumenPorDistribuidor = useMemo(() => {
+    const porDist = new Map<string, any[]>();
+    for (const r of registros) {
+      if (r.tipo_unidad !== "pallet") continue;
+      const dist = r.distribuidores?.nombre ?? "Sin distribuidor";
+      const lista = porDist.get(dist) ?? [];
+      lista.push(r);
+      porDist.set(dist, lista);
+    }
+
+    const resultado = Array.from(porDist.entries()).map(([distribuidor, regs]) => {
+      const totalesPorCalibre: Record<string, number> = {};
+      for (const r of regs) {
+        const calibre = r.calibres?.nombre ?? "Otras";
+        totalesPorCalibre[calibre] = (totalesPorCalibre[calibre] ?? 0) + Number(r.cajas ?? 0);
+      }
+      const granTotal = Object.values(totalesPorCalibre).reduce((s, v) => s + v, 0);
+
+      const cajasPorTamano: Record<string, number> = {};
+      for (const c of Object.keys(totalesPorCalibre)) {
+        const t = tamanoDeCalibre(c);
+        if (!t) continue;
+        cajasPorTamano[t] = (cajasPorTamano[t] ?? 0) + totalesPorCalibre[c];
+      }
+      const porcentajesTamano = TAMANOS_BASE.map((t) => ({
+        tamano: t,
+        porcentaje: granTotal > 0 ? ((cajasPorTamano[t] ?? 0) / granTotal) * 100 : 0,
+      }));
+
+      const calibresOrdenDist = Object.keys(totalesPorCalibre);
+      const porcentajesEmpaque = calibresOrdenDist.map((c) => ({
+        calibre: c,
+        porcentaje: granTotal > 0 ? ((totalesPorCalibre[c] ?? 0) / granTotal) * 100 : 0,
+      }));
+
+      let cajas36s = 0;
+      for (const c of calibresOrdenDist) {
+        const f = factor36sDe(c);
+        if (f) cajas36s += (totalesPorCalibre[c] ?? 0) * f;
+      }
+
+      return { distribuidor, granTotal, porcentajesTamano, porcentajesEmpaque, cajas36s };
+    });
+
+    return resultado.sort((a, b) => b.granTotal - a.granTotal);
+  }, [registros]);
+
   // ---- Cortes por número (1er, 2do, 3er...) — captura MANUAL, guardada en acumulado_cajas_corte ----
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
 
@@ -383,7 +431,15 @@ export default function AcumuladoCosechaPage() {
   const mostrarTamano = esCultivoConTamano(cultivoNombreSel) || resumenVariedad.hayCuadro31;
 
   function descargarExcel() {
-    generarExcelAcumulado({ consolidadoDiario, detallePorCuadro, resumenVariedad, campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "", esPepino });
+    generarExcelAcumulado({
+      consolidadoDiario,
+      detallePorCuadro,
+      resumenVariedad,
+      resumenPorDistribuidor,
+      campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "",
+      esPepino,
+      esConTamano: mostrarTamano,
+    });
   }
   function descargarPdf() {
     const distribuidorLabel = distribuidorFiltroId
@@ -400,6 +456,7 @@ export default function AcumuladoCosechaPage() {
       campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "",
       cortesManuales: { cuadrosPlantados, cajasManualPorCorte, campos },
       resumenVariedad,
+      resumenPorDistribuidor,
       esPepino,
       esConTamano: mostrarTamano,
       esConTamanoGeneral: esCultivoConTamano(cultivoNombreSel),
@@ -721,6 +778,62 @@ export default function AcumuladoCosechaPage() {
           </div>
         )}
       </div>
+
+      {(mostrarTamano || esPepino) && (
+        <>
+          <h2 className="mb-2 text-sm font-semibold text-campo-800">% por distribuidor</h2>
+          <div className="card mb-6 overflow-x-auto">
+            <table className="w-full min-w-[700px] text-sm">
+              <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
+                <tr>
+                  <th className="px-3 py-2">Distribuidor</th>
+                  <th className="px-3 py-2 text-center">Total cajas</th>
+                  {mostrarTamano &&
+                    TAMANOS_BASE.map((t) => (
+                      <th key={t} className="px-2 py-2 text-center">%{t}</th>
+                    ))}
+                  {esPepino &&
+                    resumenVariedad.calibresOrden.map((c) => (
+                      <th key={`dist-pct-${c}`} className="px-2 py-2 text-center">%{c}</th>
+                    ))}
+                  {esPepino && <th className="px-2 py-2 text-center">Cajas 36s equiv.</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {resumenPorDistribuidor.length === 0 && (
+                  <tr><td className="px-3 py-4 text-campo-400" colSpan={10}>Sin datos.</td></tr>
+                )}
+                {resumenPorDistribuidor.map((d) => (
+                  <tr key={d.distribuidor} className="border-t border-campo-50">
+                    <td className="px-3 py-1 text-campo-800">{d.distribuidor}</td>
+                    <td className="px-3 py-1 text-center font-medium text-campo-800">{d.granTotal.toFixed(0)}</td>
+                    {mostrarTamano &&
+                      d.porcentajesTamano.map((pt: any) => (
+                        <td key={pt.tamano} className="px-2 py-1 text-center text-campo-600">
+                          {pt.porcentaje.toFixed(1)}%
+                        </td>
+                      ))}
+                    {esPepino &&
+                      resumenVariedad.calibresOrden.map((c: string) => {
+                        const pe = d.porcentajesEmpaque.find((x: any) => x.calibre === c);
+                        return (
+                          <td key={`dist-${d.distribuidor}-${c}`} className="px-2 py-1 text-center text-campo-600">
+                            {pe ? `${pe.porcentaje.toFixed(1)}%` : "—"}
+                          </td>
+                        );
+                      })}
+                    {esPepino && (
+                      <td className="px-2 py-1 text-center font-medium text-campo-700">
+                        {d.cajas36s > 0 ? d.cajas36s.toFixed(1) : "—"}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
     </div>
   );

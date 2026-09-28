@@ -18,6 +18,7 @@ export function generarPdfAcumulado({
   campoDetalleNombre,
   cortesManuales,
   resumenVariedad,
+  resumenPorDistribuidor,
   esPepino,
   esConTamano,
   esConTamanoGeneral,
@@ -36,6 +37,7 @@ export function generarPdfAcumulado({
     campos: { id: string; label: string }[];
   };
   resumenVariedad: any;
+  resumenPorDistribuidor?: any[];
   esPepino?: boolean;
   esConTamano?: boolean;
   esConTamanoGeneral?: boolean;
@@ -303,6 +305,40 @@ export function generarPdfAcumulado({
     doc.text(texto, marginX + 4, y + alturaResumen / 2 + 1.5, { maxWidth: pageW - marginX * 2 - 8 });
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...GRIS_TEXTO);
+    y += alturaResumen + 10;
+  }
+
+  // ---------- % por distribuidor ----------
+  if ((esConTamano || esPepino) && resumenPorDistribuidor && resumenPorDistribuidor.length > 0) {
+    saltoDePaginaSiHaceFalta();
+    tituloSeccion("% por distribuidor", y);
+    y += 4;
+    const encabezadosPctDist = esPepino ? resumenVariedad.calibresOrden.map((c: string) => `%${c}`) : [];
+    const encabezado36sDist = esPepino ? ["Cajas 36s"] : [];
+    const encabezadosTamanoDist = esConTamano ? ["%6", "%8", "%9", "%11"] : [];
+    autoTable(doc, {
+      startY: y,
+      head: [["Distribuidor", "Total cajas", ...encabezadosTamanoDist, ...encabezadosPctDist, ...encabezado36sDist]],
+      body: resumenPorDistribuidor.map((d: any) => [
+        d.distribuidor,
+        d.granTotal.toFixed(0),
+        ...(esConTamano ? (d.porcentajesTamano ?? []).map((pt: any) => `${pt.porcentaje.toFixed(1)}%`) : []),
+        ...(esPepino
+          ? resumenVariedad.calibresOrden.map((c: string) => {
+              const pe = (d.porcentajesEmpaque ?? []).find((x: any) => x.calibre === c);
+              return pe ? `${pe.porcentaje.toFixed(1)}%` : "—";
+            })
+          : []),
+        ...(esPepino ? [d.cajas36s > 0 ? d.cajas36s.toFixed(1) : ""] : []),
+      ]),
+      theme: "striped",
+      styles: { fontSize: 7, halign: "center", textColor: GRIS_TEXTO, lineColor: [225, 230, 218], lineWidth: 0.1 },
+      alternateRowStyles: { fillColor: [247, 249, 244] },
+      columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
+      headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
+      margin: { left: marginX, right: marginX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
   }
 
   // ---------- Pie de página (todas las páginas) ----------

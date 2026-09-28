@@ -4,14 +4,18 @@ export function generarExcelAcumulado({
   consolidadoDiario,
   detallePorCuadro,
   resumenVariedad,
+  resumenPorDistribuidor,
   campoDetalleNombre,
   esPepino,
+  esConTamano,
 }: {
   consolidadoDiario: any;
   detallePorCuadro: any;
   resumenVariedad: any;
+  resumenPorDistribuidor?: any[];
   campoDetalleNombre: string;
   esPepino?: boolean;
+  esConTamano?: boolean;
 }) {
   const libro = XLSX.utils.book_new();
 
@@ -47,6 +51,11 @@ export function generarExcelAcumulado({
     const fila: any = { Variedad: v.variedad };
     for (const c of resumenVariedad.calibresOrden) fila[c] = v.cantidades[c] || 0;
     fila["Total"] = v.total;
+    if (esConTamano) {
+      for (const pt of v.porcentajesTamano ?? []) {
+        fila[`%${pt.tamano}`] = Number(pt.porcentaje.toFixed(1));
+      }
+    }
     if (esPepino) {
       for (const pe of v.porcentajesEmpaque ?? []) {
         fila[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
@@ -60,6 +69,11 @@ export function generarExcelAcumulado({
     ...Object.fromEntries(resumenVariedad.calibresOrden.map((c: string) => [c, resumenVariedad.totalesPorCalibre[c] || 0])),
     Total: resumenVariedad.granTotal,
   };
+  if (esConTamano) {
+    for (const pt of resumenVariedad.porcentajesTamano ?? []) {
+      filaTotal[`%${pt.tamano}`] = Number(pt.porcentaje.toFixed(1));
+    }
+  }
   if (esPepino) {
     for (const pe of resumenVariedad.porcentajesEmpaque ?? []) {
       filaTotal[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
@@ -68,6 +82,26 @@ export function generarExcelAcumulado({
   }
   filasResumen.push(filaTotal);
   XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filasResumen), "% Resumen");
+
+  // Hoja 4: % por distribuidor
+  if (resumenPorDistribuidor && resumenPorDistribuidor.length > 0) {
+    const filasDist = resumenPorDistribuidor.map((d: any) => {
+      const fila: any = { Distribuidor: d.distribuidor, "Total cajas": d.granTotal };
+      if (esConTamano) {
+        for (const pt of d.porcentajesTamano ?? []) {
+          fila[`%${pt.tamano}`] = Number(pt.porcentaje.toFixed(1));
+        }
+      }
+      if (esPepino) {
+        for (const pe of d.porcentajesEmpaque ?? []) {
+          fila[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
+        }
+        fila["Cajas 36s equiv."] = Number((d.cajas36s ?? 0).toFixed(1));
+      }
+      return fila;
+    });
+    XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filasDist), "% por distribuidor");
+  }
 
   XLSX.writeFile(libro, `acumulado_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
