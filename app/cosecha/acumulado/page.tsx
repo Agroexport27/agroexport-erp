@@ -280,7 +280,6 @@ export default function AcumuladoCosechaPage() {
     // El cuadro 31 es Sandía Mini Amarilla y debe mostrar %tamaño aunque el
     // cultivo elegido arriba no sea Sandía Mini (solo afecta su variedad).
     const variedadesConCuadro31 = new Set<string>();
-    const cuadrosVistos = new Set<string>();
 
     for (const r of registros) {
       if (r.tipo_unidad !== "pallet") continue;
@@ -291,15 +290,14 @@ export default function AcumuladoCosechaPage() {
       fila[calibre] = (fila[calibre] ?? 0) + Number(r.cajas ?? 0);
       porVariedad.set(variedad, fila);
       if (variedadPorCuadro[r.cuadro_id]?.nombreCuadro === "31") variedadesConCuadro31.add(variedad);
-      cuadrosVistos.add(r.cuadro_id);
     }
 
-    // Hectáreas totales de todos los cuadros que aportaron cajas en esta
-    // vista (suma sin duplicar, un cuadro solo cuenta una vez).
-    const granHectareas = Array.from(cuadrosVistos).reduce(
-      (s, cuadroId) => s + Number(variedadPorCuadro[cuadroId]?.hectareas ?? 0),
-      0
-    );
+    // Hectáreas totales del PROGRAMA completo (todos los cuadros plantados de
+    // este cultivo en el ciclo, tengan o no cajas capturadas todavía) — no
+    // solo los cuadros que ya cortaron. Así "cajas 36s/ha general" refleja
+    // la superficie real del programa (ej. cuadro 7 + cuadro 8 = 8.4 ha),
+    // aunque por ahora solo el cuadro 7 tenga cosecha registrada.
+    const granHectareas = cuadrosPlantados.reduce((s, c) => s + Number(c.hectareas ?? 0), 0);
 
     const calibresOrden = Array.from(calibresVistos.keys());
     const variedades = Array.from(porVariedad.entries()).map(([variedad, cantidades]) => ({
@@ -380,7 +378,7 @@ export default function AcumuladoCosechaPage() {
       granTotal36sPorHa,
       hayCuadro31: variedadesConCuadro31.size > 0,
     };
-  }, [registros, variedadPorCuadro]);
+  }, [registros, variedadPorCuadro, cuadrosPlantados]);
 
   // ---- % Resumen, desglosado por DISTRIBUIDOR (mismo cálculo que arriba, pero por distribuidor) ----
   const resumenPorDistribuidor = useMemo(() => {
