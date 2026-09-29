@@ -6,6 +6,7 @@ import { generarExcelEmbarques } from "@/lib/excel/embarques";
 import { generarPdfEmbarques } from "@/lib/pdf/embarques";
 import { EMPAQUE_OPCIONES } from "@/lib/embarquesConfig";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
+import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
 
 type Opcion = { id: string; label: string };
 
@@ -96,6 +97,15 @@ export default function RegistrosEmbarquesPage() {
       return;
     }
     consultar();
+  }
+
+  async function descargarPdfManifiesto(id: string) {
+    setError(null);
+    try {
+      await generarManifiestoDeRemision(supabase, id);
+    } catch (e: any) {
+      setError(e?.message ?? "No se pudo generar el PDF del manifiesto.");
+    }
   }
 
   async function cuadrosDelCampo(campoId: string): Promise<Opcion[]> {
@@ -353,6 +363,9 @@ export default function RegistrosEmbarquesPage() {
                         </button>
                       ) : (
                         <>
+                          <button className="btn-secondary mr-1" onClick={() => descargarPdfManifiesto(r.id)}>
+                            PDF
+                          </button>
                           <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
                             Editar
                           </button>
