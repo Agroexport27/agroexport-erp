@@ -305,11 +305,8 @@ export function generarPdfAcumulado({
   y = (doc as any).lastAutoTable.finalY + 8;
 
   if (esConTamanoGeneral || esPepino) {
-    doc.setFillColor(...VERDE_CLARO);
-    const alturaResumen = 12;
-    doc.roundedRect(marginX, y, pageW - marginX * 2, alturaResumen, 1.5, 1.5, "F");
+    saltoDePaginaSiHaceFalta(40);
     doc.setFontSize(8);
-    doc.setTextColor(...VERDE_OSCURO);
     doc.setFont("helvetica", "bold");
     let texto = "";
     if (esConTamanoGeneral) {
@@ -320,9 +317,21 @@ export function generarPdfAcumulado({
       texto =
         "% por empaque (general):  " +
         resumenVariedad.porcentajesEmpaque.map((pe: any) => `${pe.calibre}: ${pe.porcentaje.toFixed(1)}%`).join("     ") +
-        `     |     Total en cajas 36s: ${resumenVariedad.granTotal36s.toFixed(1)}`;
+        `     |     Total en cajas 36s: ${resumenVariedad.granTotal36s.toFixed(1)}` +
+        `     |     Cajas 36s/ha: ${
+          resumenVariedad.granTotal36sPorHa != null ? resumenVariedad.granTotal36sPorHa.toFixed(1) : "—"
+        }`;
     }
-    doc.text(texto, marginX + 4, y + alturaResumen / 2 + 1.5, { maxWidth: pageW - marginX * 2 - 8 });
+    // Alto de la caja calculado según cuántas líneas ocupa el texto real
+    // (con muchos calibres de Pepino esto ya no cabe en una sola línea).
+    const anchoTexto = pageW - marginX * 2 - 8;
+    const lineas = doc.splitTextToSize(texto, anchoTexto);
+    const alturaResumen = lineas.length * 4.2 + 6;
+
+    doc.setFillColor(...VERDE_CLARO);
+    doc.roundedRect(marginX, y, pageW - marginX * 2, alturaResumen, 1.5, 1.5, "F");
+    doc.setTextColor(...VERDE_OSCURO);
+    doc.text(lineas, marginX + 4, y + 5.5, { lineHeightFactor: 1.4 });
     doc.setFont("helvetica", "normal");
     doc.setTextColor(...GRIS_TEXTO);
     y += alturaResumen + 10;
@@ -368,7 +377,7 @@ export function generarPdfAcumulado({
     tituloSeccion("% por cuadro", y);
     y += 4;
     const encabezadosPctCuadro = esPepino ? resumenVariedad.calibresOrden.map((c: string) => `%${c}`) : [];
-    const encabezado36sCuadro = esPepino ? ["Cajas 36s"] : [];
+    const encabezado36sCuadro = esPepino ? ["Cajas 36s", "Cajas 36s/ha"] : [];
     const encabezadosTamanoCuadro = esConTamano ? ["%6", "%8", "%9", "%11"] : [];
     autoTable(doc, {
       startY: y,
@@ -384,7 +393,12 @@ export function generarPdfAcumulado({
               return pe ? `${pe.porcentaje.toFixed(1)}%` : "—";
             })
           : []),
-        ...(esPepino ? [c.cajas36s > 0 ? c.cajas36s.toFixed(1) : ""] : []),
+        ...(esPepino
+          ? [
+              c.cajas36s > 0 ? c.cajas36s.toFixed(1) : "",
+              c.cajas36sPorHa != null ? c.cajas36sPorHa.toFixed(1) : "—",
+            ]
+          : []),
       ]),
       theme: "striped",
       styles: { fontSize: 7, halign: "center", textColor: GRIS_TEXTO, lineColor: [225, 230, 218], lineWidth: 0.1 },

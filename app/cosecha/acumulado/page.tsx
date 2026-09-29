@@ -280,6 +280,7 @@ export default function AcumuladoCosechaPage() {
     // El cuadro 31 es Sandía Mini Amarilla y debe mostrar %tamaño aunque el
     // cultivo elegido arriba no sea Sandía Mini (solo afecta su variedad).
     const variedadesConCuadro31 = new Set<string>();
+    const cuadrosVistos = new Set<string>();
 
     for (const r of registros) {
       if (r.tipo_unidad !== "pallet") continue;
@@ -290,7 +291,15 @@ export default function AcumuladoCosechaPage() {
       fila[calibre] = (fila[calibre] ?? 0) + Number(r.cajas ?? 0);
       porVariedad.set(variedad, fila);
       if (variedadPorCuadro[r.cuadro_id]?.nombreCuadro === "31") variedadesConCuadro31.add(variedad);
+      cuadrosVistos.add(r.cuadro_id);
     }
+
+    // Hectáreas totales de todos los cuadros que aportaron cajas en esta
+    // vista (suma sin duplicar, un cuadro solo cuenta una vez).
+    const granHectareas = Array.from(cuadrosVistos).reduce(
+      (s, cuadroId) => s + Number(variedadPorCuadro[cuadroId]?.hectareas ?? 0),
+      0
+    );
 
     const calibresOrden = Array.from(calibresVistos.keys());
     const variedades = Array.from(porVariedad.entries()).map(([variedad, cantidades]) => ({
@@ -357,6 +366,7 @@ export default function AcumuladoCosechaPage() {
     }));
 
     const granTotal36s = variedades.reduce((s, v: any) => s + (v.cajas36s ?? 0), 0);
+    const granTotal36sPorHa = granHectareas > 0 ? granTotal36s / granHectareas : null;
 
     return {
       calibresOrden,
@@ -366,6 +376,8 @@ export default function AcumuladoCosechaPage() {
       porcentajesTamano,
       porcentajesEmpaque,
       granTotal36s,
+      granHectareas,
+      granTotal36sPorHa,
       hayCuadro31: variedadesConCuadro31.size > 0,
     };
   }, [registros, variedadPorCuadro]);
@@ -420,20 +432,21 @@ export default function AcumuladoCosechaPage() {
 
   // ---- % Resumen, desglosado por CUADRO (mismo cálculo, agrupado por cuadro en vez de distribuidor) ----
   const resumenPorCuadro = useMemo(() => {
-    const porCuadro = new Map<string, { nombre: string; campo: string; regs: any[] }>();
+    const porCuadro = new Map<string, { nombre: string; campo: string; hectareas: number; regs: any[] }>();
     for (const r of registros) {
       if (r.tipo_unidad !== "pallet") continue;
       const key = r.cuadro_id;
       const entrada = porCuadro.get(key) ?? {
         nombre: r.cuadros?.nombre ?? "",
         campo: r.cuadros?.campos?.nombre ?? "",
+        hectareas: Number(variedadPorCuadro[key]?.hectareas ?? 0),
         regs: [] as any[],
       };
       entrada.regs.push(r);
       porCuadro.set(key, entrada);
     }
 
-    const resultado = Array.from(porCuadro.values()).map(({ nombre, campo, regs }) => {
+    const resultado = Array.from(porCuadro.values()).map(({ nombre, campo, hectareas, regs }) => {
       const totalesPorCalibre: Record<string, number> = {};
       for (const r of regs) {
         const calibre = r.calibres?.nombre ?? "Otras";
@@ -463,12 +476,13 @@ export default function AcumuladoCosechaPage() {
         const f = factor36sDe(c);
         if (f) cajas36s += (totalesPorCalibre[c] ?? 0) * f;
       }
+      const cajas36sPorHa = hectareas > 0 ? cajas36s / hectareas : null;
 
-      return { nombre, campo, granTotal, porcentajesTamano, porcentajesEmpaque, cajas36s };
+      return { nombre, campo, hectareas, granTotal, porcentajesTamano, porcentajesEmpaque, cajas36s, cajas36sPorHa };
     });
 
     return resultado.sort((a, b) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true }));
-  }, [registros]);
+  }, [registros, variedadPorCuadro]);
 
   // ---- Cortes por número (1er, 2do, 3er...) — captura MANUAL, guardada en acumulado_cajas_corte ----
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
@@ -718,6 +732,7 @@ export default function AcumuladoCosechaPage() {
                       <th key={`cuadro-pct-${c}`} className="px-2 py-2 text-center">%{c}</th>
                     ))}
                   {esPepino && <th className="px-2 py-2 text-center">Cajas 36s equiv.</th>}
+                  {esPepino && <th className="px-2 py-2 text-center">Cajas 36s/ha</th>}
                 </tr>
               </thead>
               <tbody>
@@ -747,6 +762,11 @@ export default function AcumuladoCosechaPage() {
                     {esPepino && (
                       <td className="px-2 py-1 text-center font-medium text-campo-700">
                         {c.cajas36s > 0 ? c.cajas36s.toFixed(1) : "—"}
+                      </td>
+                    )}
+                    {esPepino && (
+                      <td className="px-2 py-1 text-center font-medium text-campo-700">
+                        {c.cajas36sPorHa != null ? c.cajas36sPorHa.toFixed(1) : "—"}
                       </td>
                     )}
                   </tr>
@@ -899,6 +919,10 @@ export default function AcumuladoCosechaPage() {
             ))}
             <span className="ml-4">
               <strong>Total en cajas 36s:</strong> {resumenVariedad.granTotal36s.toFixed(1)}
+            </span>
+            <span>
+              <strong>Cajas 36s/ha (general):</strong>{" "}
+              {resumenVariedad.granTotal36sPorHa != null ? resumenVariedad.granTotal36sPorHa.toFixed(1) : "—"}
             </span>
           </div>
         )}

@@ -81,6 +81,8 @@ export function generarExcelAcumulado({
       filaTotal[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
     }
     filaTotal["Cajas 36s equiv."] = Number((resumenVariedad.granTotal36s ?? 0).toFixed(1));
+    filaTotal["Cajas 36s/ha"] =
+      resumenVariedad.granTotal36sPorHa != null ? Number(resumenVariedad.granTotal36sPorHa.toFixed(1)) : "";
   }
   filasResumen.push(filaTotal);
   XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filasResumen), "% Resumen");
@@ -119,6 +121,7 @@ export function generarExcelAcumulado({
           fila[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
         }
         fila["Cajas 36s equiv."] = Number((c.cajas36s ?? 0).toFixed(1));
+        fila["Cajas 36s/ha"] = c.cajas36sPorHa != null ? Number(c.cajas36sPorHa.toFixed(1)) : "";
       }
       return fila;
     });
