@@ -19,6 +19,7 @@ export function generarPdfAcumulado({
   cortesManuales,
   resumenVariedad,
   resumenPorDistribuidor,
+  resumenPorCuadro,
   esPepino,
   esConTamano,
   esConTamanoGeneral,
@@ -38,6 +39,7 @@ export function generarPdfAcumulado({
   };
   resumenVariedad: any;
   resumenPorDistribuidor?: any[];
+  resumenPorCuadro?: any[];
   esPepino?: boolean;
   esConTamano?: boolean;
   esConTamanoGeneral?: boolean;
@@ -125,6 +127,20 @@ export function generarPdfAcumulado({
     }
   }
 
+  // Cuando una sola tabla es tan larga que jspdf-autotable la parte en varias
+  // páginas por su cuenta (p. ej. "Detalle por cuadro" con hasta ~45 filas),
+  // esta función se pasa como `didDrawPage` para que cada página nueva que
+  // autoTable inserte automáticamente también lleve la banda verde de
+  // encabezado y quede lista para el pie de página final — no solo las
+  // páginas que iniciamos manualmente con saltoDePaginaSiHaceFalta().
+  function conEncabezadoAuto(titulo: string) {
+    return (data: any) => {
+      if (data.pageNumber > 1) {
+        encabezado(`Reporte Acumulado de Cosecha — ${titulo} (continuación)`);
+      }
+    };
+  }
+
   // ---------- Consolidado diario ----------
   tituloSeccion("Consolidado diario", y);
   y += 4;
@@ -149,7 +165,8 @@ export function generarPdfAcumulado({
     alternateRowStyles: { fillColor: [247, 249, 244] },
     columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
     headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
-    margin: { left: marginX, right: marginX },
+    margin: { top: 30, left: marginX, right: marginX },
+    didDrawPage: conEncabezadoAuto("Consolidado diario"),
   });
   y = (doc as any).lastAutoTable.finalY + 10;
 
@@ -182,7 +199,8 @@ export function generarPdfAcumulado({
     alternateRowStyles: { fillColor: [247, 249, 244] },
     columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
     headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
-    margin: { left: marginX, right: marginX },
+    margin: { top: 30, left: marginX, right: marginX },
+    didDrawPage: conEncabezadoAuto(`Detalle por cuadro — ${campoDetalleNombre}`),
     didParseCell: (data) => {
       const filas = detallePorCuadro.fechas.length;
       if (data.section === "body" && data.row.index === filas + 1) {
@@ -220,7 +238,8 @@ export function generarPdfAcumulado({
       alternateRowStyles: { fillColor: [247, 249, 244] },
       columnStyles: { 0: { halign: "left" }, 1: { halign: "left", fontStyle: "bold" } },
       headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
-      margin: { left: marginX, right: marginX },
+      margin: { top: 30, left: marginX, right: marginX },
+      didDrawPage: conEncabezadoAuto("Cortes por número (manual)"),
     });
     y = (doc as any).lastAutoTable.finalY + 10;
   }
@@ -273,7 +292,8 @@ export function generarPdfAcumulado({
     alternateRowStyles: { fillColor: [247, 249, 244] },
     columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
     headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
-    margin: { left: marginX, right: marginX },
+    margin: { top: 30, left: marginX, right: marginX },
+    didDrawPage: conEncabezadoAuto("% Resumen por variedad"),
     didParseCell: (data) => {
       if (data.section === "body" && data.row.index === resumenVariedad.variedades.length) {
         data.cell.styles.fillColor = VERDE_CLARO;
@@ -336,7 +356,43 @@ export function generarPdfAcumulado({
       alternateRowStyles: { fillColor: [247, 249, 244] },
       columnStyles: { 0: { halign: "left", fontStyle: "bold" } },
       headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
-      margin: { left: marginX, right: marginX },
+      margin: { top: 30, left: marginX, right: marginX },
+      didDrawPage: conEncabezadoAuto("% por distribuidor"),
+    });
+    y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // ---------- % por cuadro ----------
+  if ((esConTamano || esPepino) && resumenPorCuadro && resumenPorCuadro.length > 0) {
+    saltoDePaginaSiHaceFalta();
+    tituloSeccion("% por cuadro", y);
+    y += 4;
+    const encabezadosPctCuadro = esPepino ? resumenVariedad.calibresOrden.map((c: string) => `%${c}`) : [];
+    const encabezado36sCuadro = esPepino ? ["Cajas 36s"] : [];
+    const encabezadosTamanoCuadro = esConTamano ? ["%6", "%8", "%9", "%11"] : [];
+    autoTable(doc, {
+      startY: y,
+      head: [["Campo", "Cuadro", "Total cajas", ...encabezadosTamanoCuadro, ...encabezadosPctCuadro, ...encabezado36sCuadro]],
+      body: resumenPorCuadro.map((c: any) => [
+        c.campo,
+        c.nombre,
+        c.granTotal.toFixed(0),
+        ...(esConTamano ? (c.porcentajesTamano ?? []).map((pt: any) => `${pt.porcentaje.toFixed(1)}%`) : []),
+        ...(esPepino
+          ? resumenVariedad.calibresOrden.map((cal: string) => {
+              const pe = (c.porcentajesEmpaque ?? []).find((x: any) => x.calibre === cal);
+              return pe ? `${pe.porcentaje.toFixed(1)}%` : "—";
+            })
+          : []),
+        ...(esPepino ? [c.cajas36s > 0 ? c.cajas36s.toFixed(1) : ""] : []),
+      ]),
+      theme: "striped",
+      styles: { fontSize: 7, halign: "center", textColor: GRIS_TEXTO, lineColor: [225, 230, 218], lineWidth: 0.1 },
+      alternateRowStyles: { fillColor: [247, 249, 244] },
+      columnStyles: { 0: { halign: "left" }, 1: { halign: "left", fontStyle: "bold" } },
+      headStyles: { fillColor: VERDE, textColor: 255, fontSize: 6.5, fontStyle: "bold" },
+      margin: { top: 30, left: marginX, right: marginX },
+      didDrawPage: conEncabezadoAuto("% por cuadro"),
     });
     y = (doc as any).lastAutoTable.finalY + 10;
   }

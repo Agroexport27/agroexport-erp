@@ -405,6 +405,58 @@ export default function AcumuladoCosechaPage() {
     return resultado.sort((a, b) => b.granTotal - a.granTotal);
   }, [registros]);
 
+  // ---- % Resumen, desglosado por CUADRO (mismo cálculo, agrupado por cuadro en vez de distribuidor) ----
+  const resumenPorCuadro = useMemo(() => {
+    const porCuadro = new Map<string, { nombre: string; campo: string; regs: any[] }>();
+    for (const r of registros) {
+      if (r.tipo_unidad !== "pallet") continue;
+      const key = r.cuadro_id;
+      const entrada = porCuadro.get(key) ?? {
+        nombre: r.cuadros?.nombre ?? "",
+        campo: r.cuadros?.campos?.nombre ?? "",
+        regs: [] as any[],
+      };
+      entrada.regs.push(r);
+      porCuadro.set(key, entrada);
+    }
+
+    const resultado = Array.from(porCuadro.values()).map(({ nombre, campo, regs }) => {
+      const totalesPorCalibre: Record<string, number> = {};
+      for (const r of regs) {
+        const calibre = r.calibres?.nombre ?? "Otras";
+        totalesPorCalibre[calibre] = (totalesPorCalibre[calibre] ?? 0) + Number(r.cajas ?? 0);
+      }
+      const granTotal = Object.values(totalesPorCalibre).reduce((s, v) => s + v, 0);
+
+      const cajasPorTamano: Record<string, number> = {};
+      for (const c of Object.keys(totalesPorCalibre)) {
+        const t = tamanoDeCalibre(c);
+        if (!t) continue;
+        cajasPorTamano[t] = (cajasPorTamano[t] ?? 0) + totalesPorCalibre[c];
+      }
+      const porcentajesTamano = TAMANOS_BASE.map((t) => ({
+        tamano: t,
+        porcentaje: granTotal > 0 ? ((cajasPorTamano[t] ?? 0) / granTotal) * 100 : 0,
+      }));
+
+      const calibresOrdenCuadro = Object.keys(totalesPorCalibre);
+      const porcentajesEmpaque = calibresOrdenCuadro.map((c) => ({
+        calibre: c,
+        porcentaje: granTotal > 0 ? ((totalesPorCalibre[c] ?? 0) / granTotal) * 100 : 0,
+      }));
+
+      let cajas36s = 0;
+      for (const c of calibresOrdenCuadro) {
+        const f = factor36sDe(c);
+        if (f) cajas36s += (totalesPorCalibre[c] ?? 0) * f;
+      }
+
+      return { nombre, campo, granTotal, porcentajesTamano, porcentajesEmpaque, cajas36s };
+    });
+
+    return resultado.sort((a, b) => a.nombre.localeCompare(b.nombre, undefined, { numeric: true }));
+  }, [registros]);
+
   // ---- Cortes por número (1er, 2do, 3er...) — captura MANUAL, guardada en acumulado_cajas_corte ----
   const CORTES_FIJOS = [1, 2, 3, 4, 5];
 
@@ -436,6 +488,7 @@ export default function AcumuladoCosechaPage() {
       detallePorCuadro,
       resumenVariedad,
       resumenPorDistribuidor,
+      resumenPorCuadro,
       campoDetalleNombre: campos.find((c) => c.id === campoDetalleId)?.label ?? "",
       esPepino,
       esConTamano: mostrarTamano,
@@ -457,6 +510,7 @@ export default function AcumuladoCosechaPage() {
       cortesManuales: { cuadrosPlantados, cajasManualPorCorte, campos },
       resumenVariedad,
       resumenPorDistribuidor,
+      resumenPorCuadro,
       esPepino,
       esConTamano: mostrarTamano,
       esConTamanoGeneral: esCultivoConTamano(cultivoNombreSel),
@@ -631,6 +685,64 @@ export default function AcumuladoCosechaPage() {
           </tfoot>
         </table>
       </div>
+
+      {(mostrarTamano || esPepino) && (
+        <>
+          <h2 className="mb-2 text-sm font-semibold text-campo-800">% por cuadro</h2>
+          <div className="card mb-6 overflow-x-auto">
+            <table className="w-full min-w-[700px] text-sm">
+              <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
+                <tr>
+                  <th className="px-3 py-2">Campo</th>
+                  <th className="px-3 py-2">Cuadro</th>
+                  <th className="px-3 py-2 text-center">Total cajas</th>
+                  {mostrarTamano &&
+                    TAMANOS_BASE.map((t) => (
+                      <th key={t} className="px-2 py-2 text-center">%{t}</th>
+                    ))}
+                  {esPepino &&
+                    resumenVariedad.calibresOrden.map((c) => (
+                      <th key={`cuadro-pct-${c}`} className="px-2 py-2 text-center">%{c}</th>
+                    ))}
+                  {esPepino && <th className="px-2 py-2 text-center">Cajas 36s equiv.</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {resumenPorCuadro.length === 0 && (
+                  <tr><td className="px-3 py-4 text-campo-400" colSpan={10}>Sin datos.</td></tr>
+                )}
+                {resumenPorCuadro.map((c) => (
+                  <tr key={`${c.campo}-${c.nombre}`} className="border-t border-campo-50">
+                    <td className="px-3 py-1 text-campo-600">{c.campo}</td>
+                    <td className="px-3 py-1 text-campo-800">{c.nombre}</td>
+                    <td className="px-3 py-1 text-center font-medium text-campo-800">{c.granTotal.toFixed(0)}</td>
+                    {mostrarTamano &&
+                      c.porcentajesTamano.map((pt: any) => (
+                        <td key={pt.tamano} className="px-2 py-1 text-center text-campo-600">
+                          {pt.porcentaje.toFixed(1)}%
+                        </td>
+                      ))}
+                    {esPepino &&
+                      resumenVariedad.calibresOrden.map((cal: string) => {
+                        const pe = c.porcentajesEmpaque.find((x: any) => x.calibre === cal);
+                        return (
+                          <td key={`cuadro-${c.nombre}-${cal}`} className="px-2 py-1 text-center text-campo-600">
+                            {pe ? `${pe.porcentaje.toFixed(1)}%` : "—"}
+                          </td>
+                        );
+                      })}
+                    {esPepino && (
+                      <td className="px-2 py-1 text-center font-medium text-campo-700">
+                        {c.cajas36s > 0 ? c.cajas36s.toFixed(1) : "—"}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {!esPepino && (
         <>

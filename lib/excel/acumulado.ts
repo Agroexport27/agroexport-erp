@@ -5,6 +5,7 @@ export function generarExcelAcumulado({
   detallePorCuadro,
   resumenVariedad,
   resumenPorDistribuidor,
+  resumenPorCuadro,
   campoDetalleNombre,
   esPepino,
   esConTamano,
@@ -13,6 +14,7 @@ export function generarExcelAcumulado({
   detallePorCuadro: any;
   resumenVariedad: any;
   resumenPorDistribuidor?: any[];
+  resumenPorCuadro?: any[];
   campoDetalleNombre: string;
   esPepino?: boolean;
   esConTamano?: boolean;
@@ -101,6 +103,26 @@ export function generarExcelAcumulado({
       return fila;
     });
     XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filasDist), "% por distribuidor");
+  }
+
+  // Hoja 5: % por cuadro
+  if (resumenPorCuadro && resumenPorCuadro.length > 0) {
+    const filasCuadro = resumenPorCuadro.map((c: any) => {
+      const fila: any = { Campo: c.campo, Cuadro: c.nombre, "Total cajas": c.granTotal };
+      if (esConTamano) {
+        for (const pt of c.porcentajesTamano ?? []) {
+          fila[`%${pt.tamano}`] = Number(pt.porcentaje.toFixed(1));
+        }
+      }
+      if (esPepino) {
+        for (const pe of c.porcentajesEmpaque ?? []) {
+          fila[`%${pe.calibre}`] = Number(pe.porcentaje.toFixed(1));
+        }
+        fila["Cajas 36s equiv."] = Number((c.cajas36s ?? 0).toFixed(1));
+      }
+      return fila;
+    });
+    XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filasCuadro), "% por cuadro");
   }
 
   XLSX.writeFile(libro, `acumulado_${new Date().toISOString().slice(0, 10)}.xlsx`);
