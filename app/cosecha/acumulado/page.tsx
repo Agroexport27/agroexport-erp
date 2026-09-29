@@ -30,9 +30,22 @@ function esCultivoPepino(nombre: string) {
 
 // Piezas (pepinos) por caja de cada empaque, para convertir a su
 // equivalente en cajas de "36" (36 piezas). Factor = piezas / 36.
-// TODO: completar con la tabla completa que Dionisio compartió en PDF —
-// por ahora solo estan los 2 ejemplos que dio (RPC 62 y RPC 72).
+// Tabla completa proporcionada por Dionisio. La comparación en
+// factor36sDe() se hace en MAYÚSCULAS, así que estas llaves también van
+// en mayúsculas para que el match no dependa de cómo esté capturado el
+// nombre del calibre en el catálogo.
 const PIEZAS_POR_CAJA_PEPINO: Record<string, number> = {
+  "SUPER SELECT": 70,
+  "SELECTOS": 70,
+  "LARGE": 60,
+  "SMALL": 90,
+  "PLAIN": 70,
+  "42'S": 42,
+  "36'S": 36,
+  "24'S": 24,
+  "54'S": 54,
+  "24'S RPC": 24,
+  "36'S RPC": 36,
   "RPC 62": 62,
   "RPC 72": 72,
 };
