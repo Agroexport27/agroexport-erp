@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelEmbarques } from "@/lib/excel/embarques";
 import { generarPdfEmbarques } from "@/lib/pdf/embarques";
-import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
+import { EMPAQUE_OPCIONES } from "@/lib/embarquesConfig";
+import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 
 type Opcion = { id: string; label: string };
+
+type EdicionManifiesto = {
+  fechaEmpaque: string;
+  manifiesto: string;
+  empaque: string;
+  distribuidorId: string;
+  cuadroIds: string[];
+  detalle: Record<string, { cajas: string; bins: string }>;
+};
 
 export default function RegistrosEmbarquesPage() {
   const supabase = createClient();
@@ -17,6 +27,11 @@ export default function RegistrosEmbarquesPage() {
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [edicion, setEdicion] = useState<EdicionManifiesto | null>(null);
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  const [cuadrosPorCampo, setCuadrosPorCampo] = useState<Record<string, Opcion[]>>({});
 
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10)
@@ -52,7 +67,7 @@ export default function RegistrosEmbarquesPage() {
     let query = supabase
       .from("remision_envio")
       .select(
-        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadros(nombre))"
+        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campo_id, distribuidor_id, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
       )
       .gte("fecha_empaque", fechaInicio)
       .lte("fecha_empaque", fechaFin)
@@ -73,14 +88,6 @@ export default function RegistrosEmbarquesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function descargarManifiesto(remisionId: string) {
-    try {
-      await generarManifiestoDeRemision(supabase, remisionId);
-    } catch (e: any) {
-      setError(e.message ?? "No se pudo generar el manifiesto.");
-    }
-  }
-
   async function eliminar(id: string) {
     if (!confirm("¿Eliminar esta remisión completa? No se puede deshacer.")) return;
     const { error } = await supabase.from("remision_envio").delete().eq("id", id);
@@ -88,6 +95,117 @@ export default function RegistrosEmbarquesPage() {
       setError(error.message);
       return;
     }
+    consultar();
+  }
+
+  async function cuadrosDelCampo(campoId: string): Promise<Opcion[]> {
+    if (cuadrosPorCampo[campoId]) return cuadrosPorCampo[campoId];
+    const { data } = await supabase
+      .from("cuadros")
+      .select("id, nombre, orden")
+      .eq("campo_id", campoId)
+      .order("orden");
+    const opciones = (data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }));
+    setCuadrosPorCampo((prev) => ({ ...prev, [campoId]: opciones }));
+    return opciones;
+  }
+
+  async function empezarEdicion(r: any) {
+    setError(null);
+    if (r.campo_id) await cuadrosDelCampo(r.campo_id);
+    const cuadroIdsIniciales =
+      (r.remision_envio_cuadro ?? []).map((x: any) => x.cuadro_id).filter(Boolean) ??
+      [];
+    const detalle: Record<string, { cajas: string; bins: string }> = {};
+    for (const d of r.remision_detalle ?? []) {
+      detalle[d.id] = {
+        cajas: Number(d.cantidad_cajas ?? 0) > 0 ? String(d.cantidad_cajas) : "",
+        bins: Number(d.cantidad_bins ?? 0) > 0 ? String(d.cantidad_bins) : "",
+      };
+    }
+    setEdicion({
+      fechaEmpaque: r.fecha_empaque,
+      manifiesto: r.manifiesto ?? "",
+      empaque: r.empaque ?? EMPAQUE_OPCIONES[0],
+      distribuidorId: r.distribuidor_id ?? "",
+      cuadroIds: cuadroIdsIniciales,
+      detalle,
+    });
+    setEditandoId(r.id);
+  }
+
+  function cancelarEdicion() {
+    setEditandoId(null);
+    setEdicion(null);
+  }
+
+  function actualizarDetalleEdicion(detalleId: string, campo: "cajas" | "bins", valor: string) {
+    setEdicion((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        detalle: {
+          ...prev.detalle,
+          [detalleId]: { ...prev.detalle[detalleId], [campo]: valor },
+        },
+      };
+    });
+  }
+
+  async function guardarEdicion(r: any) {
+    if (!edicion) return;
+    setGuardandoEdicion(true);
+    setError(null);
+
+    const { error: errCab } = await supabase
+      .from("remision_envio")
+      .update({
+        fecha_empaque: edicion.fechaEmpaque,
+        manifiesto: edicion.manifiesto || null,
+        empaque: edicion.empaque,
+        distribuidor_id: edicion.distribuidorId || null,
+        cuadro_id: edicion.cuadroIds[0] ?? null,
+      })
+      .eq("id", r.id);
+
+    if (errCab) {
+      setError(errCab.message);
+      setGuardandoEdicion(false);
+      return;
+    }
+
+    // Reemplazar los cuadros asociados con la selección actual
+    await supabase.from("remision_envio_cuadro").delete().eq("remision_id", r.id);
+    if (edicion.cuadroIds.length > 0) {
+      const { error: errCuadros } = await supabase
+        .from("remision_envio_cuadro")
+        .insert(edicion.cuadroIds.map((cuadroId) => ({ remision_id: r.id, cuadro_id: cuadroId })));
+      if (errCuadros) {
+        setError(errCuadros.message);
+        setGuardandoEdicion(false);
+        return;
+      }
+    }
+
+    const actualizacionesDetalle = Object.entries(edicion.detalle).map(([detalleId, valores]) =>
+      supabase
+        .from("remision_detalle")
+        .update({
+          cantidad_cajas: parseFloat(valores.cajas || "0") || 0,
+          cantidad_bins: parseFloat(valores.bins || "0") || 0,
+        })
+        .eq("id", detalleId)
+    );
+    const resultados = await Promise.all(actualizacionesDetalle);
+    const errDet = resultados.find((res) => res.error)?.error;
+
+    setGuardandoEdicion(false);
+    if (errDet) {
+      setError(errDet.message);
+      return;
+    }
+
+    cancelarEdicion();
     consultar();
   }
 
@@ -214,28 +332,148 @@ export default function RegistrosEmbarquesPage() {
             {registros.map((r: any) => {
               const t = totalesDe(r);
               return (
-                <tr key={r.id} className="border-t border-campo-50">
-                  <td className="px-4 py-2 text-campo-800">{r.fecha_empaque}</td>
-                  <td className="px-4 py-2 text-campo-800">{r.campos?.nombre}</td>
-                  <td className="px-4 py-2 text-campo-800">
-                    {(r.remision_envio_cuadro ?? []).map((x: any) => x.cuadros?.nombre).filter(Boolean).join(", ") ||
-                      r.cuadros?.nombre ||
-                      "—"}
-                  </td>
-                  <td className="px-4 py-2 text-campo-800">{r.distribuidores?.nombre}</td>
-                  <td className="px-4 py-2 text-campo-800">{r.manifiesto ?? "—"}</td>
-                  <td className="px-4 py-2 text-campo-600">{r.empaque}</td>
-                  <td className="px-4 py-2 text-campo-800">{t.cajas.toFixed(0)}</td>
-                  <td className="px-4 py-2 text-campo-800">{t.bins > 0 ? t.bins.toFixed(0) : "—"}</td>
-                  <td className="px-4 py-2 text-right">
-                    <button className="btn-secondary mr-1" onClick={() => descargarManifiesto(r.id)}>
-                      Manifiesto
-                    </button>
-                    <button className="btn-danger" onClick={() => eliminar(r.id)}>
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
+                <Fragment key={r.id}>
+                  <tr className="border-t border-campo-50">
+                    <td className="px-4 py-2 text-campo-800">{r.fecha_empaque}</td>
+                    <td className="px-4 py-2 text-campo-800">{r.campos?.nombre}</td>
+                    <td className="px-4 py-2 text-campo-800">
+                      {(r.remision_envio_cuadro ?? []).map((x: any) => x.cuadros?.nombre).filter(Boolean).join(", ") ||
+                        r.cuadros?.nombre ||
+                        "—"}
+                    </td>
+                    <td className="px-4 py-2 text-campo-800">{r.distribuidores?.nombre}</td>
+                    <td className="px-4 py-2 text-campo-800">{r.manifiesto ?? "—"}</td>
+                    <td className="px-4 py-2 text-campo-600">{r.empaque}</td>
+                    <td className="px-4 py-2 text-campo-800">{t.cajas.toFixed(0)}</td>
+                    <td className="px-4 py-2 text-campo-800">{t.bins > 0 ? t.bins.toFixed(0) : "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-2 text-right">
+                      {editandoId === r.id ? (
+                        <button className="btn-secondary" onClick={cancelarEdicion}>
+                          Cerrar
+                        </button>
+                      ) : (
+                        <>
+                          <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
+                            Editar
+                          </button>
+                          <button className="btn-danger" onClick={() => eliminar(r.id)}>
+                            Eliminar
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                  {editandoId === r.id && edicion && (
+                    <tr className="border-t border-campo-100 bg-campo-50">
+                      <td colSpan={9} className="px-4 py-3">
+                        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Fecha de empaque</label>
+                            <input
+                              type="date"
+                              className="input"
+                              value={edicion.fechaEmpaque}
+                              onChange={(e) => setEdicion({ ...edicion, fechaEmpaque: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Manifiesto</label>
+                            <input
+                              className="input"
+                              value={edicion.manifiesto}
+                              onChange={(e) => setEdicion({ ...edicion, manifiesto: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Empaque</label>
+                            <select
+                              className="input"
+                              value={edicion.empaque}
+                              onChange={(e) => setEdicion({ ...edicion, empaque: e.target.value })}
+                            >
+                              {EMPAQUE_OPCIONES.map((o) => (
+                                <option key={o} value={o}>{o}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Distribuidor</label>
+                            <select
+                              className="input"
+                              value={edicion.distribuidorId}
+                              onChange={(e) => setEdicion({ ...edicion, distribuidorId: e.target.value })}
+                            >
+                              <option value="">Selecciona...</option>
+                              {distribuidores.map((d) => (
+                                <option key={d.id} value={d.id}>{d.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="sm:col-span-2 md:col-span-2">
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro(s)</label>
+                            <MultiSelectCuadros
+                              opciones={cuadrosPorCampo[r.campo_id] ?? []}
+                              seleccionados={edicion.cuadroIds}
+                              onChange={(ids) => setEdicion({ ...edicion, cuadroIds: ids })}
+                            />
+                          </div>
+                        </div>
+
+                        {(r.remision_detalle ?? []).length > 0 && (
+                          <div className="mb-3">
+                            <p className="mb-1 text-xs font-medium text-campo-600">Cantidades capturadas</p>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+                              {(r.remision_detalle ?? []).map((d: any) => (
+                                <div key={d.id} className="rounded-md border border-campo-200 bg-white p-2">
+                                  <p className="mb-1 text-[11px] text-campo-500">
+                                    {d.calibres?.nombre ?? d.etiqueta_libre ?? "—"}
+                                  </p>
+                                  <div className="flex gap-1">
+                                    <div className="flex-1">
+                                      <label className="block text-[10px] text-campo-400">Cajas</label>
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        min={0}
+                                        className="input px-2 py-1 text-xs"
+                                        value={edicion.detalle[d.id]?.cajas ?? ""}
+                                        onChange={(e) => actualizarDetalleEdicion(d.id, "cajas", e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="flex-1">
+                                      <label className="block text-[10px] text-campo-400">Bins</label>
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        min={0}
+                                        className="input px-2 py-1 text-xs"
+                                        value={edicion.detalle[d.id]?.bins ?? ""}
+                                        onChange={(e) => actualizarDetalleEdicion(d.id, "bins", e.target.value)}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2">
+                          <button
+                            className="btn-primary"
+                            onClick={() => guardarEdicion(r)}
+                            disabled={guardandoEdicion}
+                          >
+                            {guardandoEdicion ? "Guardando..." : "Guardar cambios"}
+                          </button>
+                          <button className="btn-secondary" onClick={cancelarEdicion} disabled={guardandoEdicion}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>

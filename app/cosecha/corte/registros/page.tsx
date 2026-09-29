@@ -26,11 +26,13 @@ export default function RegistrosCortePage() {
   const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
   const [campoId, setCampoId] = useState("");
   const [distribuidorId, setDistribuidorId] = useState("");
-  const [cultivoId, setCultivoId] = useState("");
-  const [cultivos, setCultivos] = useState<Opcion[]>([]);
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [edicionCantidad, setEdicionCantidad] = useState("");
+
+  const [grupoEditando, setGrupoEditando] = useState<string | null>(null);
+  const [edicionesGrupo, setEdicionesGrupo] = useState<Record<string, string>>({});
+  const [guardandoGrupo, setGuardandoGrupo] = useState(false);
 
   useEffect(() => {
     supabase
@@ -45,14 +47,8 @@ export default function RegistrosCortePage() {
       .order("nombre")
       .then(({ data }) => setDistribuidores((data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }))));
     supabase
-      .from("cultivos")
-      .select("id, nombre")
-      .neq("nombre", "Solarizado")
-      .order("nombre")
-      .then(({ data }) => setCultivos((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
-    supabase
       .from("calibres")
-      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden, cultivo_id, cultivos(nombre)")
+      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden")
       .order("orden")
       .then(({ data }) => setCalibres(data ?? []));
     supabase
@@ -82,7 +78,6 @@ export default function RegistrosCortePage() {
 
     if (campoId) query = query.eq("campo_id", campoId);
     if (distribuidorId) query = query.eq("distribuidor_id", distribuidorId);
-    if (cultivoId) query = query.eq("cultivo_id", cultivoId);
 
     const { data, error } = await query.limit(5000);
     if (error) setError(error.message);
@@ -102,6 +97,7 @@ export default function RegistrosCortePage() {
   }
 
   function empezarEdicion(r: any) {
+    cancelarEdicionGrupo();
     setEditandoId(r.id);
     setEdicionCantidad(String(r.cantidad_unidades));
   }
@@ -135,6 +131,82 @@ export default function RegistrosCortePage() {
     consultar();
   }
 
+  async function eliminarGrupoCompleto(g: any) {
+    if (
+      !confirm(
+        `¿Eliminar TODO el corte de ${g.fecha} — ${g.campo}? Se borrarán los ${g.filas.length} renglón(es) de este día/campo. No se puede deshacer.`
+      )
+    )
+      return;
+    const ids = g.filas.map((r: any) => r.id);
+    const { error } = await supabase.from("corte_diario").delete().in("id", ids);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    consultar();
+  }
+
+  function empezarEdicionGrupo(g: any) {
+    setEditandoId(null);
+    setError(null);
+    const inicial: Record<string, string> = {};
+    for (const r of g.filas) inicial[r.id] = String(r.cantidad_unidades);
+    setEdicionesGrupo(inicial);
+    setGrupoEditando(`${g.fecha}__${g.campo}`);
+  }
+
+  function cancelarEdicionGrupo() {
+    setGrupoEditando(null);
+    setEdicionesGrupo({});
+  }
+
+  function actualizarEdicionGrupo(id: string, valor: string) {
+    setEdicionesGrupo((prev) => ({ ...prev, [id]: valor }));
+  }
+
+  async function guardarEdicionGrupo(g: any) {
+    setError(null);
+    const actualizaciones: { id: string; cantidad: number }[] = [];
+    for (const r of g.filas) {
+      const valor = edicionesGrupo[r.id];
+      if (valor === undefined) continue;
+      const cantidad = parseFloat(valor);
+      if (isNaN(cantidad) || cantidad < 0) {
+        setError(`Cantidad inválida en ${r.cuadros?.nombre ?? "un renglón"}.`);
+        return;
+      }
+      if (cantidad !== Number(r.cantidad_unidades)) {
+        actualizaciones.push({ id: r.id, cantidad });
+      }
+    }
+
+    if (actualizaciones.length === 0) {
+      cancelarEdicionGrupo();
+      return;
+    }
+
+    setGuardandoGrupo(true);
+    const resultados = await Promise.all(
+      actualizaciones.map(({ id, cantidad }) => {
+        const r = g.filas.find((f: any) => f.id === id);
+        const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
+        return supabase
+          .from("corte_diario")
+          .update({ cantidad_unidades: cantidad, cajas: cantidad * tasa })
+          .eq("id", id);
+      })
+    );
+    setGuardandoGrupo(false);
+    const errUpd = resultados.find((res) => res.error)?.error;
+    if (errUpd) {
+      setError(errUpd.message);
+      return;
+    }
+    cancelarEdicionGrupo();
+    consultar();
+  }
+
   const totalCajas = registros.reduce((s, r) => s + Number(r.cajas ?? 0), 0);
   const rango = `${fechaInicio}_a_${fechaFin}`;
 
@@ -155,44 +227,16 @@ export default function RegistrosCortePage() {
   const grupos = useMemo(() => {
     const mapa = new Map<string, any>();
     for (const r of registros) {
-      const cultivo = r.cultivos?.nombre ?? "";
-      const key = `${r.fecha}__${r.campos?.nombre ?? ""}__${cultivo}`;
+      const key = `${r.fecha}__${r.campos?.nombre ?? ""}`;
       const g =
         mapa.get(key) ??
-        { fecha: r.fecha, campo: r.campos?.nombre ?? "", cultivo, filas: [] as any[], totalCajas: 0 };
+        { fecha: r.fecha, campo: r.campos?.nombre ?? "", filas: [] as any[], totalCajas: 0 };
       g.filas.push(r);
       g.totalCajas += Number(r.cajas ?? 0);
       mapa.set(key, g);
     }
     return Array.from(mapa.values()).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
   }, [registros]);
-
-  // Las columnas de calibre dependen del cultivo de cada grupo -- las
-  // variantes de Sandia Mini (ej. Amarilla) usan el mismo catalogo base.
-  function calibresDelCultivo(nombreCultivo: string) {
-    const n = (nombreCultivo || "").toLowerCase();
-    const esVarianteSandiaMini = n.includes("sandía mini") || n.includes("sandia mini");
-    const nombreBase = esVarianteSandiaMini ? "Sandía Mini" : nombreCultivo;
-    const delCultivo = calibres.filter((c) => c.cultivos?.nombre === nombreBase);
-    return {
-      caja: delCultivo
-        .filter((c) => c.cajas_por_pallet != null)
-        .sort((a, b) => a.orden - b.orden)
-        .map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
-      bin: delCultivo
-        .filter((c) => c.cajas_por_bin != null)
-        .sort((a, b) => a.orden - b.orden)
-        .map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
-    };
-  }
-
-  // El % por tamaño (agrupando M9->9, 8COS/FT8C->8, 6J/6JXL/4D->6) solo
-  // aplica al catalogo de Sandia Mini -- para otros cultivos (Pepino,
-  // Regular) no hay ese agrupamiento definido, asi que se omite.
-  function esCultivoConTamano(nombreCultivo: string) {
-    const n = (nombreCultivo || "").toLowerCase();
-    return n.includes("sandía mini") || n.includes("sandia mini");
-  }
 
   const calibresCaja = useMemo(
     () => calibres.filter((c) => c.cajas_por_pallet != null).sort((a, b) => a.orden - b.orden).map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
@@ -216,43 +260,14 @@ export default function RegistrosCortePage() {
   }
 
   function descargarResumenExcel(g: any) {
-    const { caja, bin } = calibresDelCultivo(g.cultivo);
-    generarExcelResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja: caja, calibresBin: bin });
+    generarExcelResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
   }
   function descargarResumenPdf(g: any) {
-    const { caja, bin } = calibresDelCultivo(g.cultivo);
-    generarPdfResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja: caja, calibresBin: bin });
+    generarPdfResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
   }
   function descargarPdfDistribuidor(g: any, distribuidor: string) {
-    const { caja, bin } = calibresDelCultivo(g.cultivo);
     const filasDist = detalleDeGrupo(g).filter((f: any) => f.distribuidor === distribuidor);
-    generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja: caja, calibresBin: bin });
-  }
-
-  const TAMANOS_BASE = ["6", "8", "9", "11"];
-  function tamanoDeCalibre(nombreCalibre: string): string | null {
-    const n = (nombreCalibre ?? "").trim().toUpperCase();
-    if (n === "M 9" || n === "M9") return "9";
-    if (n === "8 COS" || n === "FT 8C") return "8";
-    if (n === "6 J" || n === "6 JXL" || n === "4D COS" || n === "4 D") return "6";
-    if (TAMANOS_BASE.includes(n)) return n;
-    return null;
-  }
-  function resumenTamanos(filas: any[]) {
-    const cajasPorTamano: Record<string, number> = {};
-    let total = 0;
-    for (const f of filas) {
-      if (f.tipoUnidad !== "pallet") continue;
-      const t = tamanoDeCalibre(f.calibreNombre);
-      if (!t) continue;
-      cajasPorTamano[t] = (cajasPorTamano[t] ?? 0) + f.cajas;
-      total += f.cajas;
-    }
-    return TAMANOS_BASE.map((t) => ({
-      tamano: t,
-      cajas: cajasPorTamano[t] ?? 0,
-      porcentaje: total > 0 ? ((cajasPorTamano[t] ?? 0) / total) * 100 : 0,
-    }));
+    generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja, calibresBin });
   }
 
   return (
@@ -266,7 +281,7 @@ export default function RegistrosCortePage() {
         </div>
       )}
 
-      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-6">
+      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-5">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Desde</label>
           <input type="date" className="input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
@@ -293,15 +308,6 @@ export default function RegistrosCortePage() {
             ))}
           </select>
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Cultivo</label>
-          <select className="input" value={cultivoId} onChange={(e) => setCultivoId(e.target.value)}>
-            <option value="">Todos</option>
-            {cultivos.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </select>
-        </div>
         <div className="flex flex-wrap gap-2">
           <button className="btn-primary" onClick={consultar} disabled={loading}>
             {loading ? "Consultando..." : "Consultar"}
@@ -325,120 +331,152 @@ export default function RegistrosCortePage() {
         <p className="text-sm text-campo-400">Sin registros en el rango seleccionado.</p>
       )}
 
-      {grupos.map((g) => (
-        <details key={`${g.fecha}__${g.campo}`} className="card mb-2 overflow-hidden">
-          <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
-            <span className="text-sm font-medium text-campo-800">
-              {g.fecha} — {g.campo} — {g.cultivo}
-              <span className="ml-2 font-normal text-campo-500">
-                ({g.filas.length} renglón(es) · {g.totalCajas.toFixed(0)} cajas)
+      {grupos.map((g) => {
+        const claveGrupo = `${g.fecha}__${g.campo}`;
+        const enEdicionGrupo = grupoEditando === claveGrupo;
+        return (
+          <details key={claveGrupo} className="card mb-2 overflow-hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
+              <span className="text-sm font-medium text-campo-800">
+                {g.fecha} — {g.campo}
+                <span className="ml-2 font-normal text-campo-500">
+                  ({g.filas.length} renglón(es) · {g.totalCajas.toFixed(0)} cajas)
+                </span>
               </span>
-            </span>
-          </summary>
-          <div className="flex flex-wrap gap-2 border-b border-campo-100 bg-white px-4 py-2">
-            <button className="btn-secondary text-xs" onClick={() => descargarResumenExcel(g)}>
-              Resumen del día (Excel)
-            </button>
-            <button className="btn-secondary text-xs" onClick={() => descargarResumenPdf(g)}>
-              Resumen del día (PDF, todos)
-            </button>
-            {Array.from(new Set(g.filas.map((r: any) => r.distribuidores?.nombre))).map((dist: any) => (
-              <button
-                key={dist}
-                className="btn-secondary text-xs"
-                onClick={() => descargarPdfDistribuidor(g, dist)}
-              >
-                PDF — {dist}
+            </summary>
+            <div className="flex flex-wrap items-center gap-2 border-b border-campo-100 bg-white px-4 py-2">
+              <button className="btn-secondary text-xs" onClick={() => descargarResumenExcel(g)}>
+                Resumen del día (Excel)
               </button>
-            ))}
-          </div>
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs font-medium text-campo-500">
-              <tr>
-                <th className="px-4 py-1">Cuadro</th>
-                <th className="px-4 py-1">Distribuidor</th>
-                <th className="px-4 py-1">Calibre</th>
-                <th className="px-4 py-1">Tipo</th>
-                <th className="px-4 py-1">Unidades</th>
-                <th className="px-4 py-1">Cajas</th>
-                <th className="px-4 py-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {g.filas.map((r: any) =>
-                editandoId === r.id ? (
-                  <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
-                    <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
-                    <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
-                    <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
-                    <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
-                    <td className="px-2 py-1">
-                      <input
-                        type="number"
-                        step="any"
-                        className="input w-20"
-                        value={edicionCantidad}
-                        onChange={(e) => setEdicionCantidad(e.target.value)}
-                      />
-                    </td>
-                    <td className="px-4 py-1 text-campo-600">
-                      {(parseFloat(edicionCantidad || "0") * tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad)).toFixed(0)}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-1 text-right">
-                      <button className="btn-secondary mr-1" onClick={() => guardarEdicion(r)}>
-                        Guardar
-                      </button>
-                      <button className="btn-secondary" onClick={() => setEditandoId(null)}>
-                        Cancelar
-                      </button>
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={r.id} className="border-t border-campo-50">
-                    <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
-                    <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
-                    <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
-                    <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
-                    <td className="px-4 py-1 text-campo-800">{r.cantidad_unidades}</td>
-                    <td className="px-4 py-1 text-campo-800">{Number(r.cajas).toFixed(0)}</td>
-                    <td className="whitespace-nowrap px-4 py-1 text-right">
-                      <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
-                        Editar
-                      </button>
-                      <button className="btn-danger" onClick={() => eliminar(r.id)}>
-                        Eliminar
-                      </button>
-                    </td>
-                  </tr>
-                )
-              )}
-            </tbody>
-          </table>
-
-          {esCultivoConTamano(g.cultivo) && (
-            <div className="border-t border-campo-100 px-4 py-3">
-              <p className="mb-1 text-xs font-medium text-campo-600">% por tamaño — total del día</p>
-              <div className="mb-3 flex flex-wrap gap-4 text-xs text-campo-700">
-                {resumenTamanos(detalleDeGrupo(g)).map((t) => (
-                  <span key={t.tamano}>
-                    <strong>{t.tamano}:</strong> {t.cajas.toFixed(0)} cajas ({t.porcentaje.toFixed(1)}%)
-                  </span>
-                ))}
-              </div>
+              <button className="btn-secondary text-xs" onClick={() => descargarResumenPdf(g)}>
+                Resumen del día (PDF, todos)
+              </button>
               {Array.from(new Set(g.filas.map((r: any) => r.distribuidores?.nombre))).map((dist: any) => (
-                <div key={dist} className="mb-1 flex flex-wrap items-center gap-4 text-xs">
-                  <span className="w-32 shrink-0 font-medium text-campo-600">{dist}:</span>
-                  {resumenTamanos(detalleDeGrupo(g).filter((f: any) => f.distribuidor === dist)).map((t) => (
-                    <span key={t.tamano} className="text-campo-600">
-                      {t.tamano}: {t.porcentaje.toFixed(1)}%
-                    </span>
-                  ))}
-                </div>
+                <button
+                  key={dist}
+                  className="btn-secondary text-xs"
+                  onClick={() => descargarPdfDistribuidor(g, dist)}
+                >
+                  PDF — {dist}
+                </button>
               ))}
+              <span className="mx-1 h-4 border-l border-campo-200" />
+              {enEdicionGrupo ? (
+                <>
+                  <button
+                    className="btn-primary text-xs"
+                    onClick={() => guardarEdicionGrupo(g)}
+                    disabled={guardandoGrupo}
+                  >
+                    {guardandoGrupo ? "Guardando..." : "Guardar corte completo"}
+                  </button>
+                  <button className="btn-secondary text-xs" onClick={cancelarEdicionGrupo} disabled={guardandoGrupo}>
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="btn-secondary text-xs" onClick={() => empezarEdicionGrupo(g)}>
+                    Editar corte completo
+                  </button>
+                  <button className="btn-danger text-xs" onClick={() => eliminarGrupoCompleto(g)}>
+                    Eliminar corte completo
+                  </button>
+                </>
+              )}
             </div>
-          )}
-        </details>
-      ))}
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs font-medium text-campo-500">
+                <tr>
+                  <th className="px-4 py-1">Cuadro</th>
+                  <th className="px-4 py-1">Distribuidor</th>
+                  <th className="px-4 py-1">Calibre</th>
+                  <th className="px-4 py-1">Tipo</th>
+                  <th className="px-4 py-1">Unidades</th>
+                  <th className="px-4 py-1">Cajas</th>
+                  <th className="px-4 py-1"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.filas.map((r: any) => {
+                  if (enEdicionGrupo) {
+                    const valor = edicionesGrupo[r.id] ?? "";
+                    return (
+                      <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
+                        <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
+                        <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
+                        <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
+                        <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="number"
+                            step="any"
+                            className="input w-20"
+                            value={valor}
+                            onChange={(e) => actualizarEdicionGrupo(r.id, e.target.value)}
+                          />
+                        </td>
+                        <td className="px-4 py-1 text-campo-600">
+                          {(
+                            (parseFloat(valor || "0")) *
+                            tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad)
+                          ).toFixed(0)}
+                        </td>
+                        <td className="px-4 py-1"></td>
+                      </tr>
+                    );
+                  }
+                  return editandoId === r.id ? (
+                    <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
+                      <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
+                      <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
+                      <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
+                      <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="number"
+                          step="any"
+                          className="input w-20"
+                          value={edicionCantidad}
+                          onChange={(e) => setEdicionCantidad(e.target.value)}
+                        />
+                      </td>
+                      <td className="px-4 py-1 text-campo-600">
+                        {(parseFloat(edicionCantidad || "0") * tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad)).toFixed(0)}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-1 text-right">
+                        <button className="btn-secondary mr-1" onClick={() => guardarEdicion(r)}>
+                          Guardar
+                        </button>
+                        <button className="btn-secondary" onClick={() => setEditandoId(null)}>
+                          Cancelar
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={r.id} className="border-t border-campo-50">
+                      <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
+                      <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
+                      <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
+                      <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
+                      <td className="px-4 py-1 text-campo-800">{r.cantidad_unidades}</td>
+                      <td className="px-4 py-1 text-campo-800">{Number(r.cajas).toFixed(0)}</td>
+                      <td className="whitespace-nowrap px-4 py-1 text-right">
+                        <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
+                          Editar
+                        </button>
+                        <button className="btn-danger" onClick={() => eliminar(r.id)}>
+                          Eliminar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </details>
+        );
+      })}
     </div>
   );
 }
