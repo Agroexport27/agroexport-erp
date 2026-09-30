@@ -246,7 +246,9 @@ export default function EmbarquesPage() {
 
     // Descuenta la tarima usada del inventario de materiales -- esto se
     // hace aqui (Embarques) y no en Corte, porque ahi no se especifica
-    // el tipo de tarima.
+    // el tipo de tarima. Se guarda origen_id = remision.id para poder
+    // revertir este movimiento exacto despues, si la remision se edita o
+    // se elimina desde Registros.
     if (cantidadTarimas && parseFloat(cantidadTarimas) > 0) {
       const { data: materialTarima } = await supabase
         .from("materiales_empaque")
@@ -262,6 +264,7 @@ export default function EmbarquesPage() {
           cantidad: parseFloat(cantidadTarimas),
           observaciones: `Tarimas entregadas en remisión (${distribuidorNombre})`,
           origen_tipo: "embarque",
+          origen_id: remision.id,
         });
       }
     }

@@ -17,7 +17,11 @@ type EdicionManifiesto = {
   distribuidorId: string;
   cuadroIds: string[];
   detalle: Record<string, { cajas: string; bins: string }>;
+  tipoTarima: string;
+  cantidadTarimas: string;
 };
+
+const TIPOS_TARIMA = ["TARIMA CHEP", "TARIMA AZUL", "TARIMA CAFE TACON"];
 
 export default function RegistrosEmbarquesPage() {
   const supabase = createClient();
@@ -68,7 +72,7 @@ export default function RegistrosEmbarquesPage() {
     let query = supabase
       .from("remision_envio")
       .select(
-        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campo_id, distribuidor_id, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
+        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campo_id, distribuidor_id, tipo_tarima, cantidad_tarimas, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
       )
       .gte("fecha_empaque", fechaInicio)
       .lte("fecha_empaque", fechaFin)
@@ -89,9 +93,52 @@ export default function RegistrosEmbarquesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function eliminar(id: string) {
+  // Las salidas de tarima que genera Embarques no quedan ligadas por id al
+  // movimiento exacto (así se creaban desde antes), así que en vez de
+  // intentar encontrar y borrar el movimiento original, se inserta un
+  // movimiento de "entrada" que lo revierte -- nunca se toca ni se arriesga
+  // el movimiento de otra remisión.
+  async function ajustarInventarioTarima(
+    tipoTarimaNombre: string | null,
+    cantidad: number,
+    campoId: string | null,
+    fecha: string,
+    tipo: "entrada" | "salida",
+    observaciones: string
+  ) {
+    if (!tipoTarimaNombre || !cantidad || cantidad <= 0 || !campoId) return;
+    const { data: material } = await supabase
+      .from("materiales_empaque")
+      .select("id")
+      .eq("nombre", tipoTarimaNombre)
+      .maybeSingle();
+    if (!material) return;
+    await supabase.from("movimiento_material_empaque").insert({
+      material_id: material.id,
+      campo_id: campoId,
+      fecha,
+      tipo,
+      cantidad,
+      observaciones,
+      origen_tipo: "embarque",
+    });
+  }
+
+  async function eliminar(r: any) {
     if (!confirm("¿Eliminar esta remisión completa? No se puede deshacer.")) return;
-    const { error } = await supabase.from("remision_envio").delete().eq("id", id);
+
+    if (r.cantidad_tarimas && Number(r.cantidad_tarimas) > 0) {
+      await ajustarInventarioTarima(
+        r.tipo_tarima,
+        Number(r.cantidad_tarimas),
+        r.campo_id,
+        r.fecha_empaque,
+        "entrada",
+        `Reversión por eliminar remisión (manifiesto ${r.manifiesto ?? "—"})`
+      );
+    }
+
+    const { error } = await supabase.from("remision_envio").delete().eq("id", r.id);
     if (error) {
       setError(error.message);
       return;
@@ -140,6 +187,8 @@ export default function RegistrosEmbarquesPage() {
       distribuidorId: r.distribuidor_id ?? "",
       cuadroIds: cuadroIdsIniciales,
       detalle,
+      tipoTarima: r.tipo_tarima ?? TIPOS_TARIMA[0],
+      cantidadTarimas: Number(r.cantidad_tarimas ?? 0) > 0 ? String(r.cantidad_tarimas) : "",
     });
     setEditandoId(r.id);
   }
@@ -167,6 +216,8 @@ export default function RegistrosEmbarquesPage() {
     setGuardandoEdicion(true);
     setError(null);
 
+    const cantidadTarimaNueva = edicion.cantidadTarimas ? parseFloat(edicion.cantidadTarimas) || 0 : 0;
+
     const { error: errCab } = await supabase
       .from("remision_envio")
       .update({
@@ -175,6 +226,8 @@ export default function RegistrosEmbarquesPage() {
         empaque: edicion.empaque,
         distribuidor_id: edicion.distribuidorId || null,
         cuadro_id: edicion.cuadroIds[0] ?? null,
+        tipo_tarima: cantidadTarimaNueva > 0 ? edicion.tipoTarima : null,
+        cantidad_tarimas: cantidadTarimaNueva > 0 ? cantidadTarimaNueva : null,
       })
       .eq("id", r.id);
 
@@ -182,6 +235,38 @@ export default function RegistrosEmbarquesPage() {
       setError(errCab.message);
       setGuardandoEdicion(false);
       return;
+    }
+
+    // Si la tarima (tipo o cantidad) cambió, revertir lo anterior y aplicar
+    // lo nuevo -- nunca se edita el movimiento original, se agregan
+    // movimientos de ajuste (mismo patrón que usa Corte).
+    const tarimaAnteriorNombre = r.tipo_tarima ?? null;
+    const tarimaAnteriorCantidad = Number(r.cantidad_tarimas ?? 0);
+    const cambioTarima =
+      tarimaAnteriorNombre !== (cantidadTarimaNueva > 0 ? edicion.tipoTarima : null) ||
+      tarimaAnteriorCantidad !== cantidadTarimaNueva;
+
+    if (cambioTarima) {
+      if (tarimaAnteriorCantidad > 0) {
+        await ajustarInventarioTarima(
+          tarimaAnteriorNombre,
+          tarimaAnteriorCantidad,
+          r.campo_id,
+          edicion.fechaEmpaque,
+          "entrada",
+          `Reversión por editar remisión (manifiesto ${r.manifiesto ?? "—"})`
+        );
+      }
+      if (cantidadTarimaNueva > 0) {
+        await ajustarInventarioTarima(
+          edicion.tipoTarima,
+          cantidadTarimaNueva,
+          r.campo_id,
+          edicion.fechaEmpaque,
+          "salida",
+          `Tarimas entregadas (editado, manifiesto ${edicion.manifiesto || "—"})`
+        );
+      }
     }
 
     // Reemplazar los cuadros asociados con la selección actual
@@ -369,7 +454,7 @@ export default function RegistrosEmbarquesPage() {
                           <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
                             Editar
                           </button>
-                          <button className="btn-danger" onClick={() => eliminar(r.id)}>
+                          <button className="btn-danger" onClick={() => eliminar(r)}>
                             Eliminar
                           </button>
                         </>
@@ -428,6 +513,29 @@ export default function RegistrosEmbarquesPage() {
                               opciones={cuadrosPorCampo[r.campo_id] ?? []}
                               seleccionados={edicion.cuadroIds}
                               onChange={(ids) => setEdicion({ ...edicion, cuadroIds: ids })}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de tarima</label>
+                            <select
+                              className="input"
+                              value={edicion.tipoTarima}
+                              onChange={(e) => setEdicion({ ...edicion, tipoTarima: e.target.value })}
+                            >
+                              {TIPOS_TARIMA.map((t) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Cantidad de tarimas</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min={0}
+                              className="input"
+                              value={edicion.cantidadTarimas}
+                              onChange={(e) => setEdicion({ ...edicion, cantidadTarimas: e.target.value })}
                             />
                           </div>
                         </div>
