@@ -11,7 +11,7 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
   const { data: remision, error } = await supabase
     .from("remision_envio")
     .select(
-      "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, campos(nombre), cuadros(nombre), distribuidores(nombre, direccion, ciudad), cultivos(nombre), remision_detalle(cantidad_cajas, calibre_id, calibres(nombre, cajas_por_pallet)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
+      "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, tipo_tarima, cantidad_tarimas, tipo_tarima_2, cantidad_tarimas_2, campos(nombre), cuadros(nombre), distribuidores(nombre, direccion, ciudad), cultivos(nombre), remision_detalle(cantidad_cajas, calibre_id, calibres(nombre, cajas_por_pallet)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
     )
     .eq("id", remisionId)
     .single();
@@ -35,6 +35,11 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
       .filter(Boolean)
       .join(", ") || remision.cuadros?.nombre || "";
 
+  const tarimas = [
+    { tipo: remision.tipo_tarima ?? "", cantidad: Number(remision.cantidad_tarimas ?? 0) },
+    { tipo: remision.tipo_tarima_2 ?? "", cantidad: Number(remision.cantidad_tarimas_2 ?? 0) },
+  ].filter((t) => t.tipo && t.cantidad > 0);
+
   generarPdfManifiesto({
     serie: serie || "A",
     folio: folio || "00",
@@ -49,5 +54,6 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
     chofer: remision.chofer ?? "",
     cultivoNombre: remision.cultivos?.nombre ?? "",
     lineas,
+    tarimas,
   });
 }

@@ -64,6 +64,8 @@ export type LineaManifiesto = {
   cajasPorPallet: number | null;
 };
 
+export type TarimaManifiesto = { tipo: string; cantidad: number };
+
 export function generarPdfManifiesto({
   serie,
   folio,
@@ -78,6 +80,7 @@ export function generarPdfManifiesto({
   chofer,
   cultivoNombre,
   lineas,
+  tarimas,
 }: {
   serie: string;
   folio: string;
@@ -92,6 +95,7 @@ export function generarPdfManifiesto({
   chofer: string;
   cultivoNombre: string;
   lineas: LineaManifiesto[];
+  tarimas?: TarimaManifiesto[];
 }) {
   const doc = new jsPDF({ unit: "mm", format: "letter" });
   const pageW = 216;
@@ -103,10 +107,6 @@ export function generarPdfManifiesto({
   const mesTexto = MESES[parseInt(mes, 10) - 1] ?? mes;
 
   const totalCajas = lineas.reduce((s, l) => s + l.cajas, 0);
-  const totalTarimas = lineas.reduce((s, l) => {
-    if (!l.cajasPorPallet || l.cajasPorPallet <= 0) return s;
-    return s + l.cajas / l.cajasPorPallet;
-  }, 0);
 
   let y = 14;
 
@@ -204,7 +204,6 @@ export function generarPdfManifiesto({
   const tableW = pageW - marginX * 2;
   const rowH = 6;
   const numFilasVacias = 2;
-  const tableH = rowH * (1 + lineas.length + numFilasVacias) + 22; // +22 para el bloque de texto final
 
   doc.rect(marginX, tableTop, tableW, rowH);
   doc.setFontSize(8.5);
@@ -212,14 +211,6 @@ export function generarPdfManifiesto({
   doc.text("DESCRIPCION", marginX + colCantidadW + colDescW / 2, tableTop + 4, { align: "center" });
   doc.text("PARCIAL", marginX + colCantidadW + colDescW + colParcialW / 2, tableTop + 4, { align: "center" });
   doc.text("IMPORTE", marginX + colCantidadW + colDescW + colParcialW + colImporteW / 2, tableTop + 4, { align: "center" });
-  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
-  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
-  doc.line(
-    marginX + colCantidadW + colDescW + colParcialW,
-    tableTop,
-    marginX + colCantidadW + colDescW + colParcialW,
-    tableTop + rowH * (1 + lineas.length + numFilasVacias)
-  );
 
   let filaY = tableTop + rowH;
   doc.setFont("helvetica", "normal");
@@ -240,7 +231,21 @@ export function generarPdfManifiesto({
     filaY += rowH;
   }
 
-  doc.rect(marginX, tableTop, tableW, filaY - tableTop);
+  // Las lineas verticales (separadores de columna) se dibujan AL FINAL, ya
+  // con la altura real de la tabla (cada linea de detalle ocupa 2 renglones,
+  // no 1) -- antes se calculaban con una altura mas chica y por eso a partir
+  // de la 2da/3ra linea de detalle se veian filas sin separador vertical.
+  const tableBottom = filaY;
+  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableBottom);
+  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableBottom);
+  doc.line(
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableTop,
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableBottom
+  );
+
+  doc.rect(marginX, tableTop, tableW, tableBottom - tableTop);
 
   y = filaY + 6;
 
@@ -306,11 +311,22 @@ export function generarPdfManifiesto({
   doc.line(marginX + 60, y, marginX + 120, y);
   doc.text("FIRMA", marginX + 84, y + 4);
 
-  doc.setFontSize(20);
-  doc.setFont("helvetica", "bold");
-  doc.text(String(Math.round(totalTarimas)), rightColX + 20, y - 4);
+  const tarimasValidas = (tarimas ?? []).filter((t) => t.tipo && t.cantidad > 0);
   doc.setFontSize(7);
-  doc.text("Cantidad de tarimas entregadas", rightColX - 10, y + 2);
+  doc.setFont("helvetica", "bold");
+  doc.text("TARIMAS ENTREGADAS", rightColX - 10, y - 14);
+  doc.setFont("helvetica", "normal");
+  if (tarimasValidas.length === 0) {
+    doc.setFontSize(11);
+    doc.text("—", rightColX - 10, y - 7);
+  } else {
+    doc.setFontSize(9);
+    let ty = y - 8;
+    for (const t of tarimasValidas) {
+      doc.text(`${t.tipo}: ${t.cantidad}`, rightColX - 10, ty);
+      ty += 4.5;
+    }
+  }
 
   doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}.pdf`);
 }
