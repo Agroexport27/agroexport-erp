@@ -14,6 +14,7 @@ export default function RegistrosCortePage() {
 
   const [campos, setCampos] = useState<Opcion[]>([]);
   const [distribuidores, setDistribuidores] = useState<Opcion[]>([]);
+  const [cultivos, setCultivos] = useState<Opcion[]>([]);
   const [registros, setRegistros] = useState<any[]>([]);
   const [calibres, setCalibres] = useState<any[]>([]);
   const [overrides, setOverrides] = useState<Record<string, Record<string, number>>>({});
@@ -47,8 +48,13 @@ export default function RegistrosCortePage() {
       .order("nombre")
       .then(({ data }) => setDistribuidores((data ?? []).map((d: any) => ({ id: d.id, label: d.nombre }))));
     supabase
+      .from("cultivos")
+      .select("id, nombre")
+      .order("nombre")
+      .then(({ data }) => setCultivos((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
+    supabase
       .from("calibres")
-      .select("id, nombre, cajas_por_pallet, cajas_por_bin, orden")
+      .select("id, nombre, cultivo_id, cajas_por_pallet, cajas_por_bin, orden")
       .order("orden")
       .then(({ data }) => setCalibres(data ?? []));
     supabase
@@ -70,7 +76,7 @@ export default function RegistrosCortePage() {
     let query = supabase
       .from("corte_diario")
       .select(
-        "id, fecha, campo_id, distribuidor_id, calibre_id, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
+        "id, fecha, campo_id, distribuidor_id, calibre_id, cultivo_id, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin)
@@ -134,7 +140,7 @@ export default function RegistrosCortePage() {
   async function eliminarGrupoCompleto(g: any) {
     if (
       !confirm(
-        `¿Eliminar TODO el corte de ${g.fecha} — ${g.campo}? Se borrarán los ${g.filas.length} renglón(es) de este día/campo. No se puede deshacer.`
+        `¿Eliminar TODO el corte de ${g.fecha} — ${g.campo} — ${g.cultivo}? Se borrarán los ${g.filas.length} renglón(es) de este día/campo/cultivo. No se puede deshacer.`
       )
     )
       return;
@@ -153,7 +159,7 @@ export default function RegistrosCortePage() {
     const inicial: Record<string, string> = {};
     for (const r of g.filas) inicial[r.id] = String(r.cantidad_unidades);
     setEdicionesGrupo(inicial);
-    setGrupoEditando(`${g.fecha}__${g.campo}`);
+    setGrupoEditando(`${g.fecha}__${g.campo}__${g.cultivo}`);
   }
 
   function cancelarEdicionGrupo() {
@@ -224,13 +230,38 @@ export default function RegistrosCortePage() {
     }));
   }
 
+  // Sandia Mini Amarilla (y cualquier otra variante) comparte el catalogo
+  // de calibres de "Sandía Mini" -- para filtrar las columnas del resumen
+  // hay que resolver a ese cultivo base, igual que en Corte diario.
+  function idCultivoParaCalibres(cultivoId: string | null, cultivoNombre: string): string | null {
+    const nombre = (cultivoNombre || "").toLowerCase();
+    const esVarianteSandiaMini = nombre.includes("sandía mini") || nombre.includes("sandia mini");
+    if (esVarianteSandiaMini) {
+      const base = cultivos.find((c) => c.label === "Sandía Mini");
+      if (base) return base.id;
+    }
+    return cultivoId;
+  }
+
+  // Un corte puede traer varios cultivos el mismo día/campo (ej. Sandía
+  // Mini y Pepino) -- hay que separarlos en grupos distintos para que el
+  // resumen (columnas por calibre) no mezcle calibres de cultivos
+  // diferentes.
   const grupos = useMemo(() => {
     const mapa = new Map<string, any>();
     for (const r of registros) {
-      const key = `${r.fecha}__${r.campos?.nombre ?? ""}`;
+      const cultivoNombre = r.cultivos?.nombre ?? "Sin cultivo";
+      const key = `${r.fecha}__${r.campos?.nombre ?? ""}__${cultivoNombre}`;
       const g =
         mapa.get(key) ??
-        { fecha: r.fecha, campo: r.campos?.nombre ?? "", filas: [] as any[], totalCajas: 0 };
+        {
+          fecha: r.fecha,
+          campo: r.campos?.nombre ?? "",
+          cultivo: cultivoNombre,
+          cultivoId: r.cultivo_id ?? null,
+          filas: [] as any[],
+          totalCajas: 0,
+        };
       g.filas.push(r);
       g.totalCajas += Number(r.cajas ?? 0);
       mapa.set(key, g);
@@ -238,14 +269,19 @@ export default function RegistrosCortePage() {
     return Array.from(mapa.values()).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
   }, [registros]);
 
-  const calibresCaja = useMemo(
-    () => calibres.filter((c) => c.cajas_por_pallet != null).sort((a, b) => a.orden - b.orden).map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
-    [calibres]
-  );
-  const calibresBin = useMemo(
-    () => calibres.filter((c) => c.cajas_por_bin != null).sort((a, b) => a.orden - b.orden).map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden })),
-    [calibres]
-  );
+  function calibresDelGrupo(g: any) {
+    const idBase = idCultivoParaCalibres(g.cultivoId, g.cultivo);
+    const delCultivo = idBase ? calibres.filter((c) => c.cultivo_id === idBase) : calibres;
+    const calibresCaja = delCultivo
+      .filter((c) => c.cajas_por_pallet != null)
+      .sort((a, b) => a.orden - b.orden)
+      .map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden }));
+    const calibresBin = delCultivo
+      .filter((c) => c.cajas_por_bin != null)
+      .sort((a, b) => a.orden - b.orden)
+      .map((c) => ({ id: c.id, nombre: c.nombre, orden: c.orden }));
+    return { calibresCaja, calibresBin };
+  }
 
   function detalleDeGrupo(g: any) {
     return g.filas.map((r: any) => ({
@@ -260,14 +296,36 @@ export default function RegistrosCortePage() {
   }
 
   function descargarResumenExcel(g: any) {
-    generarExcelResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
+    const { calibresCaja, calibresBin } = calibresDelGrupo(g);
+    generarExcelResumenCorte({
+      fecha: g.fecha,
+      campo: `${g.campo} - ${g.cultivo}`,
+      filas: detalleDeGrupo(g),
+      calibresCaja,
+      calibresBin,
+    });
   }
   function descargarResumenPdf(g: any) {
-    generarPdfResumenCorte({ fecha: g.fecha, campo: g.campo, filas: detalleDeGrupo(g), calibresCaja, calibresBin });
+    const { calibresCaja, calibresBin } = calibresDelGrupo(g);
+    generarPdfResumenCorte({
+      fecha: g.fecha,
+      campo: `${g.campo} - ${g.cultivo}`,
+      filas: detalleDeGrupo(g),
+      calibresCaja,
+      calibresBin,
+    });
   }
   function descargarPdfDistribuidor(g: any, distribuidor: string) {
+    const { calibresCaja, calibresBin } = calibresDelGrupo(g);
     const filasDist = detalleDeGrupo(g).filter((f: any) => f.distribuidor === distribuidor);
-    generarPdfResumenCorteUnDistribuidor({ fecha: g.fecha, campo: g.campo, distribuidor, filas: filasDist, calibresCaja, calibresBin });
+    generarPdfResumenCorteUnDistribuidor({
+      fecha: g.fecha,
+      campo: `${g.campo} - ${g.cultivo}`,
+      distribuidor,
+      filas: filasDist,
+      calibresCaja,
+      calibresBin,
+    });
   }
 
   return (
@@ -332,13 +390,13 @@ export default function RegistrosCortePage() {
       )}
 
       {grupos.map((g) => {
-        const claveGrupo = `${g.fecha}__${g.campo}`;
+        const claveGrupo = `${g.fecha}__${g.campo}__${g.cultivo}`;
         const enEdicionGrupo = grupoEditando === claveGrupo;
         return (
           <details key={claveGrupo} className="card mb-2 overflow-hidden">
             <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
               <span className="text-sm font-medium text-campo-800">
-                {g.fecha} — {g.campo}
+                {g.fecha} — {g.campo} — {g.cultivo}
                 <span className="ml-2 font-normal text-campo-500">
                   ({g.filas.length} renglón(es) · {g.totalCajas.toFixed(0)} cajas)
                 </span>
