@@ -11,7 +11,7 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
   const { data: remision, error } = await supabase
     .from("remision_envio")
     .select(
-      "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, reg_transporte, tipo_tarima, cantidad_tarimas, distribuidor_id, cultivo_id, campos(nombre), distribuidores(nombre, direccion, ciudad), cultivos(nombre), remision_detalle(cantidad_cajas, calibre_id, calibres(nombre))"
+      "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, campos(nombre), cuadros(nombre), distribuidores(nombre, direccion, ciudad), cultivos(nombre), remision_detalle(cantidad_cajas, calibre_id, calibres(nombre, cajas_por_pallet)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
     )
     .eq("id", remisionId)
     .single();
@@ -20,51 +20,34 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
     throw new Error(error?.message ?? "No se encontró la remisión.");
   }
 
-  // La direccion/nombre de cliente puede variar segun distribuidor+cultivo
-  // (ej. Robinson usa una razon social distinta para Pepino que para
-  // Sandia). Si no hay una combinacion especifica, se usa la del
-  // distribuidor tal cual.
-  let clienteNombre = remision.distribuidores?.nombre ?? "";
-  let clienteDireccion = remision.distribuidores?.direccion ?? "";
-  let clienteCiudad = remision.distribuidores?.ciudad ?? "";
-  if (remision.distribuidor_id && remision.cultivo_id) {
-    const { data: override } = await supabase
-      .from("manifiesto_cliente")
-      .select("nombre_cliente, direccion, ciudad")
-      .eq("distribuidor_id", remision.distribuidor_id)
-      .eq("cultivo_id", remision.cultivo_id)
-      .maybeSingle();
-    if (override) {
-      clienteNombre = override.nombre_cliente;
-      clienteDireccion = override.direccion ?? clienteDireccion;
-      clienteCiudad = override.ciudad ?? clienteCiudad;
-    }
-  }
-
   const { serie, folio } = parseSerieFolio(remision.manifiesto);
   const lineas = (remision.remision_detalle ?? [])
     .filter((d: any) => d.calibre_id && Number(d.cantidad_cajas) > 0)
     .map((d: any) => ({
       cajas: Number(d.cantidad_cajas),
       calibreNombre: d.calibres?.nombre ?? "",
+      cajasPorPallet: d.calibres?.cajas_por_pallet != null ? Number(d.calibres.cajas_por_pallet) : null,
     }));
+
+  const cuadroNombre =
+    (remision.remision_envio_cuadro ?? [])
+      .map((x: any) => x.cuadros?.nombre)
+      .filter(Boolean)
+      .join(", ") || remision.cuadros?.nombre || "";
 
   generarPdfManifiesto({
     serie: serie || "A",
     folio: folio || "00",
     fecha: remision.fecha_empaque,
     campoNombre: remision.campos?.nombre ?? "",
+    cuadroNombre,
     distribuidor: remision.distribuidores?.nombre ?? "",
-    clienteNombre,
-    distribuidorDireccion: clienteDireccion,
-    distribuidorCiudad: clienteCiudad,
+    distribuidorDireccion: remision.distribuidores?.direccion ?? "",
+    distribuidorCiudad: remision.distribuidores?.ciudad ?? "",
     cajaTransporte: remision.caja_transporte ?? "",
     placas: remision.placas ?? "",
     chofer: remision.chofer ?? "",
-    regTransporte: remision.reg_transporte ?? "",
     cultivoNombre: remision.cultivos?.nombre ?? "",
-    tipoTarima: remision.tipo_tarima ?? null,
-    cantidadTarimas: remision.cantidad_tarimas != null ? Number(remision.cantidad_tarimas) : null,
     lineas,
   });
 }

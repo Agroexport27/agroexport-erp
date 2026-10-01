@@ -26,9 +26,10 @@ export default function EmbarquesPage() {
   const [cajaTransporte, setCajaTransporte] = useState("");
   const [placas, setPlacas] = useState("");
   const [choferManifiesto, setChoferManifiesto] = useState("");
-  const [regTransporte, setRegTransporte] = useState("");
   const [tipoTarima, setTipoTarima] = useState("TARIMA CHEP");
   const [cantidadTarimas, setCantidadTarimas] = useState("");
+  const [tipoTarima2, setTipoTarima2] = useState("");
+  const [cantidadTarimas2, setCantidadTarimas2] = useState("");
   const [empaque, setEmpaque] = useState("Convencional");
 
   const [valoresCajas, setValoresCajas] = useState<Record<string, string>>({});
@@ -190,9 +191,10 @@ export default function EmbarquesPage() {
         caja_transporte: cajaTransporte || null,
         placas: placas || null,
         chofer: choferManifiesto || null,
-        reg_transporte: regTransporte || null,
         tipo_tarima: cantidadTarimas ? tipoTarima : null,
         cantidad_tarimas: cantidadTarimas ? parseFloat(cantidadTarimas) : null,
+        tipo_tarima_2: cantidadTarimas2 ? tipoTarima2 : null,
+        cantidad_tarimas_2: cantidadTarimas2 ? parseFloat(cantidadTarimas2) : null,
         campo_id: campoId,
         cultivo_id: cultivoId || null,
         empaque,
@@ -244,16 +246,19 @@ export default function EmbarquesPage() {
       return;
     }
 
-    // Descuenta la tarima usada del inventario de materiales -- esto se
-    // hace aqui (Embarques) y no en Corte, porque ahi no se especifica
-    // el tipo de tarima. Se guarda origen_id = remision.id para poder
-    // revertir este movimiento exacto despues, si la remision se edita o
-    // se elimina desde Registros.
-    if (cantidadTarimas && parseFloat(cantidadTarimas) > 0) {
+    // Descuenta la(s) tarima(s) usada(s) del inventario de materiales --
+    // esto se hace aqui (Embarques) y no en Corte, porque ahi no se
+    // especifica el tipo de tarima. Se guarda origen_id = remision.id para
+    // poder revertir este movimiento exacto despues, si la remision se
+    // edita o se elimina desde Registros. Puede haber hasta dos tipos de
+    // tarima distintos en el mismo embarque.
+    const remisionId = remision.id;
+    async function registrarSalidaTarima(tipoNombre: string, cantidadStr: string) {
+      if (!cantidadStr || parseFloat(cantidadStr) <= 0) return;
       const { data: materialTarima } = await supabase
         .from("materiales_empaque")
         .select("id")
-        .eq("nombre", tipoTarima)
+        .eq("nombre", tipoNombre)
         .maybeSingle();
       if (materialTarima) {
         await supabase.from("movimiento_material_empaque").insert({
@@ -261,13 +266,15 @@ export default function EmbarquesPage() {
           campo_id: campoId,
           fecha,
           tipo: "salida",
-          cantidad: parseFloat(cantidadTarimas),
+          cantidad: parseFloat(cantidadStr),
           observaciones: `Tarimas entregadas en remisión (${distribuidorNombre})`,
           origen_tipo: "embarque",
-          origen_id: remision.id,
+          origen_id: remisionId,
         });
       }
     }
+    await registrarSalidaTarima(tipoTarima, cantidadTarimas);
+    if (tipoTarima2) await registrarSalidaTarima(tipoTarima2, cantidadTarimas2);
 
     setGuardando(false);
     setMensajeExito(
@@ -277,9 +284,10 @@ export default function EmbarquesPage() {
     setCajaTransporte("");
     setPlacas("");
     setChoferManifiesto("");
-    setRegTransporte("");
     setTipoTarima("TARIMA CHEP");
     setCantidadTarimas("");
+    setTipoTarima2("");
+    setCantidadTarimas2("");
     setCuadroIds([]);
     setValoresCajas({});
     setValoresBins({});
@@ -347,10 +355,6 @@ export default function EmbarquesPage() {
           <input className="input" value={choferManifiesto} onChange={(e) => setChoferManifiesto(e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Reg. Transporte (SCAC/CAAT/FDA)</label>
-          <input className="input" value={regTransporte} onChange={(e) => setRegTransporte(e.target.value)} />
-        </div>
-        <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de tarima</label>
           <select className="input" value={tipoTarima} onChange={(e) => setTipoTarima(e.target.value)}>
             <option value="TARIMA CHEP">Tarima CHEP</option>
@@ -367,6 +371,27 @@ export default function EmbarquesPage() {
             className="input"
             value={cantidadTarimas}
             onChange={(e) => setCantidadTarimas(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">2do tipo de tarima (opcional)</label>
+          <select className="input" value={tipoTarima2} onChange={(e) => setTipoTarima2(e.target.value)}>
+            <option value="">Ninguno</option>
+            <option value="TARIMA CHEP">Tarima CHEP</option>
+            <option value="TARIMA AZUL">Tarima Azul</option>
+            <option value="TARIMA CAFE TACON">Tarima Café Tacón</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Cantidad (2do tipo)</label>
+          <input
+            type="number"
+            step="any"
+            min={0}
+            className="input"
+            value={cantidadTarimas2}
+            onChange={(e) => setCantidadTarimas2(e.target.value)}
+            disabled={!tipoTarima2}
           />
         </div>
         <div>

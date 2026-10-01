@@ -13,6 +13,46 @@ const CAJA_POR_DISTRIBUIDOR: Record<string, string> = {
 
 const PESO_POR_CAJA_LBS = 35; // fijo para Sandia Mini, todos los calibres
 
+// REG TRANSP. nunca cambia -- se imprime siempre este valor sin importar
+// lo que se haya capturado en la remisión.
+const REG_TRANSPORTE_FIJO = "SCAC -ATJV CAAT 1636 FDA 11511915174";
+
+// Libras por caja de Pepino, segun el calibre/presentacion. Se busca por
+// nombre normalizado (sin espacios, apostrofes ni mayusculas/minusculas)
+// para no depender de como esta escrito exactamente en el catalogo.
+const LBS_PEPINO_POR_CALIBRE: Record<string, number> = {
+  superselect: 55,
+  selectos: 55,
+  large: 55,
+  small: 55,
+  plain: 55,
+  "42s": 28,
+  "36s": 28,
+  "24s": 24,
+  "54s": 38,
+  "24srpc": 26,
+  "36srpc": 28,
+  sselectowmrpc: 55,
+  sselectoloblawrpc: 55,
+};
+
+function normalizarCalibre(nombre: string): string {
+  return nombre
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // quita acentos
+    .replace(/[^a-z0-9]/g, ""); // quita espacios, apostrofes, puntos, etc.
+}
+
+function pesoPorCaja(cultivoNombre: string, calibreNombre: string): number {
+  const cultivo = cultivoNombre.toLowerCase();
+  if (cultivo.includes("pepino")) {
+    const clave = normalizarCalibre(calibreNombre);
+    return LBS_PEPINO_POR_CALIBRE[clave] ?? PESO_POR_CAJA_LBS;
+  }
+  return PESO_POR_CAJA_LBS; // Sandia (y cualquier otro) siempre 35
+}
+
 function numeroATexto(n: number): string {
   // Para "SON:" -- como siempre es consignacion, el monto es cero.
   return "CERO DOLARES 00/100 U.S.Cy.";
@@ -21,6 +61,7 @@ function numeroATexto(n: number): string {
 export type LineaManifiesto = {
   cajas: number;
   calibreNombre: string;
+  cajasPorPallet: number | null;
 };
 
 export function generarPdfManifiesto({
@@ -28,34 +69,28 @@ export function generarPdfManifiesto({
   folio,
   fecha,
   campoNombre,
+  cuadroNombre,
   distribuidor,
-  clienteNombre,
   distribuidorDireccion,
   distribuidorCiudad,
   cajaTransporte,
   placas,
   chofer,
-  regTransporte,
   cultivoNombre,
-  tipoTarima,
-  cantidadTarimas,
   lineas,
 }: {
   serie: string;
   folio: string;
   fecha: string; // YYYY-MM-DD
   campoNombre: string;
+  cuadroNombre?: string;
   distribuidor: string;
-  clienteNombre: string;
   distribuidorDireccion: string;
   distribuidorCiudad: string;
   cajaTransporte: string;
   placas: string;
   chofer: string;
-  regTransporte: string;
   cultivoNombre: string;
-  tipoTarima: string | null;
-  cantidadTarimas: number | null;
   lineas: LineaManifiesto[];
 }) {
   const doc = new jsPDF({ unit: "mm", format: "letter" });
@@ -68,7 +103,10 @@ export function generarPdfManifiesto({
   const mesTexto = MESES[parseInt(mes, 10) - 1] ?? mes;
 
   const totalCajas = lineas.reduce((s, l) => s + l.cajas, 0);
-  const totalTarimas = cantidadTarimas ?? 0;
+  const totalTarimas = lineas.reduce((s, l) => {
+    if (!l.cajasPorPallet || l.cajasPorPallet <= 0) return s;
+    return s + l.cajas / l.cajasPorPallet;
+  }, 0);
 
   let y = 14;
 
@@ -117,7 +155,10 @@ export function generarPdfManifiesto({
   doc.setFontSize(8);
   doc.setFont("helvetica", "bold");
   doc.text("OFICINA MATRIZ Y DOMICILIO FISCAL", marginX, y);
-  doc.text(`CAMPO ${campoNombre.toUpperCase()}`, marginX + 70, y);
+  const etiquetaCampo = cuadroNombre
+    ? `CAMPO ${campoNombre.toUpperCase()}   WORK ORDER: ${cuadroNombre.toUpperCase()}`
+    : `CAMPO ${campoNombre.toUpperCase()}`;
+  doc.text(etiquetaCampo, marginX + 70, y);
   doc.setFont("helvetica", "normal");
   y += 4;
   doc.text("GARMENDIA # 46 Esq. Tamaulipas", marginX, y);
@@ -141,7 +182,7 @@ export function generarPdfManifiesto({
   doc.setFontSize(8.5);
   doc.text(`NOMBRE:`, marginX + 2, clienteTop + 12);
   doc.setFont("helvetica", "normal");
-  doc.text(clienteNombre.toUpperCase(), marginX + 22, clienteTop + 12);
+  doc.text(distribuidor.toUpperCase(), marginX + 22, clienteTop + 12);
   doc.setFont("helvetica", "bold");
   doc.text("R.F.C.", marginX + 130, clienteTop + 12);
   doc.text("DIRECCION:", marginX + 2, clienteTop + 17);
@@ -163,6 +204,7 @@ export function generarPdfManifiesto({
   const tableW = pageW - marginX * 2;
   const rowH = 6;
   const numFilasVacias = 2;
+  const tableH = rowH * (1 + lineas.length + numFilasVacias) + 22; // +22 para el bloque de texto final
 
   doc.rect(marginX, tableTop, tableW, rowH);
   doc.setFontSize(8.5);
@@ -170,14 +212,23 @@ export function generarPdfManifiesto({
   doc.text("DESCRIPCION", marginX + colCantidadW + colDescW / 2, tableTop + 4, { align: "center" });
   doc.text("PARCIAL", marginX + colCantidadW + colDescW + colParcialW / 2, tableTop + 4, { align: "center" });
   doc.text("IMPORTE", marginX + colCantidadW + colDescW + colParcialW + colImporteW / 2, tableTop + 4, { align: "center" });
+  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
+  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableTop + rowH * (1 + lineas.length + numFilasVacias));
+  doc.line(
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableTop,
+    marginX + colCantidadW + colDescW + colParcialW,
+    tableTop + rowH * (1 + lineas.length + numFilasVacias)
+  );
 
   let filaY = tableTop + rowH;
   doc.setFont("helvetica", "normal");
   for (const l of lineas) {
     doc.line(marginX, filaY, marginX + tableW, filaY);
     const caja = CAJA_POR_DISTRIBUIDOR[distribuidor] ?? "CAJA";
-    const desc = `${cultivoNombre.toUpperCase()} CALIBRE ${l.calibreNombre} ${caja}, ${PESO_POR_CAJA_LBS} LBS`;
-    const desc2 = `LBS ETIQUETA ${distribuidor.toUpperCase()}`;
+    const peso = pesoPorCaja(cultivoNombre, l.calibreNombre);
+    const desc = `${cultivoNombre.toUpperCase()} CALIBRE ${l.calibreNombre} ${caja}, ${peso} LBS`;
+    const desc2 = `ETIQUETA ${distribuidor.toUpperCase()}`;
     doc.setFontSize(8);
     doc.text(String(l.cajas), marginX + colCantidadW / 2, filaY + 4, { align: "center" });
     doc.text(desc, marginX + colCantidadW + colDescW / 2, filaY + 4, { align: "center" });
@@ -189,19 +240,7 @@ export function generarPdfManifiesto({
     filaY += rowH;
   }
 
-  // Lineas verticales y marco exterior, ya con la altura real de la
-  // tabla (algunas filas ocupan 2 renglones, por eso se calculan hasta
-  // el final en vez de adivinar antes)
-  const tableBottom = filaY;
-  doc.line(marginX + colCantidadW, tableTop, marginX + colCantidadW, tableBottom);
-  doc.line(marginX + colCantidadW + colDescW, tableTop, marginX + colCantidadW + colDescW, tableBottom);
-  doc.line(
-    marginX + colCantidadW + colDescW + colParcialW,
-    tableTop,
-    marginX + colCantidadW + colDescW + colParcialW,
-    tableBottom
-  );
-  doc.rect(marginX, tableTop, tableW, tableBottom - tableTop);
+  doc.rect(marginX, tableTop, tableW, filaY - tableTop);
 
   y = filaY + 6;
 
@@ -210,7 +249,7 @@ export function generarPdfManifiesto({
   doc.setFont("helvetica", "bold");
   doc.text(`SE RETORNAN ${totalCajas} CAJAS`, marginX, y);
   y += 4;
-  doc.text(`REG TRANSP. ${regTransporte || "-"}`, marginX, y);
+  doc.text(`REG TRANSP. ${REG_TRANSPORTE_FIJO}`, marginX, y);
   y += 4;
   doc.text(`CAMION: ${cajaTransporte || "-"}`, marginX, y);
   y += 4;
@@ -272,11 +311,6 @@ export function generarPdfManifiesto({
   doc.text(String(Math.round(totalTarimas)), rightColX + 20, y - 4);
   doc.setFontSize(7);
   doc.text("Cantidad de tarimas entregadas", rightColX - 10, y + 2);
-  if (tipoTarima) {
-    doc.setFontSize(7.5);
-    doc.setFont("helvetica", "bold");
-    doc.text(tipoTarima, rightColX + 20, y + 7, { align: "center" });
-  }
 
-  doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
+  doc.save(`manifiesto_${serie}${folio}_${distribuidor.replace(/\s+/g, "_")}_${fecha}.pdf`);
 }

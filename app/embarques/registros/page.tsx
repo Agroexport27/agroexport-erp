@@ -19,6 +19,8 @@ type EdicionManifiesto = {
   detalle: Record<string, { cajas: string; bins: string }>;
   tipoTarima: string;
   cantidadTarimas: string;
+  tipoTarima2: string;
+  cantidadTarimas2: string;
 };
 
 const TIPOS_TARIMA = ["TARIMA CHEP", "TARIMA AZUL", "TARIMA CAFE TACON"];
@@ -72,7 +74,7 @@ export default function RegistrosEmbarquesPage() {
     let query = supabase
       .from("remision_envio")
       .select(
-        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campo_id, distribuidor_id, tipo_tarima, cantidad_tarimas, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
+        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campo_id, distribuidor_id, tipo_tarima, cantidad_tarimas, tipo_tarima_2, cantidad_tarimas_2, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
       )
       .gte("fecha_empaque", fechaInicio)
       .lte("fecha_empaque", fechaFin)
@@ -137,6 +139,16 @@ export default function RegistrosEmbarquesPage() {
         `Reversión por eliminar remisión (manifiesto ${r.manifiesto ?? "—"})`
       );
     }
+    if (r.cantidad_tarimas_2 && Number(r.cantidad_tarimas_2) > 0) {
+      await ajustarInventarioTarima(
+        r.tipo_tarima_2,
+        Number(r.cantidad_tarimas_2),
+        r.campo_id,
+        r.fecha_empaque,
+        "entrada",
+        `Reversión por eliminar remisión (manifiesto ${r.manifiesto ?? "—"})`
+      );
+    }
 
     const { error } = await supabase.from("remision_envio").delete().eq("id", r.id);
     if (error) {
@@ -189,6 +201,8 @@ export default function RegistrosEmbarquesPage() {
       detalle,
       tipoTarima: r.tipo_tarima ?? TIPOS_TARIMA[0],
       cantidadTarimas: Number(r.cantidad_tarimas ?? 0) > 0 ? String(r.cantidad_tarimas) : "",
+      tipoTarima2: r.tipo_tarima_2 ?? "",
+      cantidadTarimas2: Number(r.cantidad_tarimas_2 ?? 0) > 0 ? String(r.cantidad_tarimas_2) : "",
     });
     setEditandoId(r.id);
   }
@@ -217,6 +231,7 @@ export default function RegistrosEmbarquesPage() {
     setError(null);
 
     const cantidadTarimaNueva = edicion.cantidadTarimas ? parseFloat(edicion.cantidadTarimas) || 0 : 0;
+    const cantidadTarimaNueva2 = edicion.cantidadTarimas2 ? parseFloat(edicion.cantidadTarimas2) || 0 : 0;
 
     const { error: errCab } = await supabase
       .from("remision_envio")
@@ -228,6 +243,8 @@ export default function RegistrosEmbarquesPage() {
         cuadro_id: edicion.cuadroIds[0] ?? null,
         tipo_tarima: cantidadTarimaNueva > 0 ? edicion.tipoTarima : null,
         cantidad_tarimas: cantidadTarimaNueva > 0 ? cantidadTarimaNueva : null,
+        tipo_tarima_2: cantidadTarimaNueva2 > 0 ? edicion.tipoTarima2 : null,
+        cantidad_tarimas_2: cantidadTarimaNueva2 > 0 ? cantidadTarimaNueva2 : null,
       })
       .eq("id", r.id);
 
@@ -239,35 +256,50 @@ export default function RegistrosEmbarquesPage() {
 
     // Si la tarima (tipo o cantidad) cambió, revertir lo anterior y aplicar
     // lo nuevo -- nunca se edita el movimiento original, se agregan
-    // movimientos de ajuste (mismo patrón que usa Corte).
-    const tarimaAnteriorNombre = r.tipo_tarima ?? null;
-    const tarimaAnteriorCantidad = Number(r.cantidad_tarimas ?? 0);
-    const cambioTarima =
-      tarimaAnteriorNombre !== (cantidadTarimaNueva > 0 ? edicion.tipoTarima : null) ||
-      tarimaAnteriorCantidad !== cantidadTarimaNueva;
-
-    if (cambioTarima) {
-      if (tarimaAnteriorCantidad > 0) {
+    // movimientos de ajuste (mismo patrón que usa Corte). Se hace igual
+    // para los dos posibles tipos de tarima del embarque.
+    async function reconciliarTarima(
+      nombreAnterior: string | null,
+      cantidadAnterior: number,
+      nombreNuevo: string | null,
+      cantidadNueva: number
+    ) {
+      const cambio = nombreAnterior !== nombreNuevo || cantidadAnterior !== cantidadNueva;
+      if (!cambio) return;
+      if (cantidadAnterior > 0) {
         await ajustarInventarioTarima(
-          tarimaAnteriorNombre,
-          tarimaAnteriorCantidad,
+          nombreAnterior,
+          cantidadAnterior,
           r.campo_id,
-          edicion.fechaEmpaque,
+          edicion!.fechaEmpaque,
           "entrada",
           `Reversión por editar remisión (manifiesto ${r.manifiesto ?? "—"})`
         );
       }
-      if (cantidadTarimaNueva > 0) {
+      if (cantidadNueva > 0) {
         await ajustarInventarioTarima(
-          edicion.tipoTarima,
-          cantidadTarimaNueva,
+          nombreNuevo,
+          cantidadNueva,
           r.campo_id,
-          edicion.fechaEmpaque,
+          edicion!.fechaEmpaque,
           "salida",
-          `Tarimas entregadas (editado, manifiesto ${edicion.manifiesto || "—"})`
+          `Tarimas entregadas (editado, manifiesto ${edicion!.manifiesto || "—"})`
         );
       }
     }
+
+    await reconciliarTarima(
+      r.tipo_tarima ?? null,
+      Number(r.cantidad_tarimas ?? 0),
+      cantidadTarimaNueva > 0 ? edicion.tipoTarima : null,
+      cantidadTarimaNueva
+    );
+    await reconciliarTarima(
+      r.tipo_tarima_2 ?? null,
+      Number(r.cantidad_tarimas_2 ?? 0),
+      cantidadTarimaNueva2 > 0 ? edicion.tipoTarima2 : null,
+      cantidadTarimaNueva2
+    );
 
     // Reemplazar los cuadros asociados con la selección actual
     await supabase.from("remision_envio_cuadro").delete().eq("remision_id", r.id);
@@ -536,6 +568,31 @@ export default function RegistrosEmbarquesPage() {
                               className="input"
                               value={edicion.cantidadTarimas}
                               onChange={(e) => setEdicion({ ...edicion, cantidadTarimas: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">2do tipo de tarima</label>
+                            <select
+                              className="input"
+                              value={edicion.tipoTarima2}
+                              onChange={(e) => setEdicion({ ...edicion, tipoTarima2: e.target.value })}
+                            >
+                              <option value="">Ninguno</option>
+                              {TIPOS_TARIMA.map((t) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Cantidad (2do tipo)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              min={0}
+                              className="input"
+                              value={edicion.cantidadTarimas2}
+                              onChange={(e) => setEdicion({ ...edicion, cantidadTarimas2: e.target.value })}
+                              disabled={!edicion.tipoTarima2}
                             />
                           </div>
                         </div>
