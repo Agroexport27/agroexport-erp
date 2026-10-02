@@ -315,7 +315,7 @@ export function generarPdfManifiesto({
   // para que no se encime con los recuadros de totales de arriba) ----
   const tarimasValidas = (tarimas ?? []).filter((t) => t.tipo && t.cantidad > 0);
   const tarimasX = rightColX - 10;
-  let ty = y + 10;
+  let ty = y + 24;
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
   doc.text("TARIMAS ENTREGADAS", tarimasX, ty);
