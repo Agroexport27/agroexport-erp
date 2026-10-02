@@ -305,26 +305,30 @@ export function generarPdfManifiesto({
   const selloH = (selloW * 173) / 323;
   doc.addImage(SELLO_MANIFIESTO_PNG, "PNG", marginX, y - 16, selloW, selloH);
 
-  // ---- Firma y tarimas ----
+  // ---- Firma ----
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.line(marginX + 60, y, marginX + 120, y);
   doc.text("FIRMA", marginX + 84, y + 4);
 
+  // ---- Tarimas entregadas (debajo de la firma, con su propio espacio
+  // para que no se encime con los recuadros de totales de arriba) ----
   const tarimasValidas = (tarimas ?? []).filter((t) => t.tipo && t.cantidad > 0);
+  const tarimasX = rightColX - 10;
+  let ty = y + 10;
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
-  doc.text("TARIMAS ENTREGADAS", rightColX - 10, y - 14);
+  doc.text("TARIMAS ENTREGADAS", tarimasX, ty);
   doc.setFont("helvetica", "normal");
+  ty += 5.5;
   if (tarimasValidas.length === 0) {
-    doc.setFontSize(11);
-    doc.text("—", rightColX - 10, y - 7);
+    doc.setFontSize(9);
+    doc.text("—", tarimasX, ty);
   } else {
     doc.setFontSize(9);
-    let ty = y - 8;
     for (const t of tarimasValidas) {
-      doc.text(`${t.tipo}: ${t.cantidad}`, rightColX - 10, ty);
-      ty += 4.5;
+      doc.text(`${t.tipo}: ${t.cantidad}`, tarimasX, ty);
+      ty += 5;
     }
   }
 
