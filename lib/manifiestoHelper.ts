@@ -4,6 +4,7 @@ import { generarPdfManifiesto } from "@/lib/pdf/manifiesto";
 // código de "Work Order" que agrupa varios cuadros de un mismo campo.
 const WORK_ORDER_DULCINEA: Record<string, string> = {
   C31: "26AGRSO2",
+  "31": "26AGRSO2",
   "1": "26AGRSO1",
   "2": "26AGRSO1",
   "3": "26AGRSO3",
