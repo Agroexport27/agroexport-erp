@@ -298,6 +298,8 @@ export function generarPdfManifiesto({
   doc.rect(totalesValueX, y - 4, 25, 6);
   doc.text("0,000.00", totalesValueX + 12.5, y, { align: "center" });
 
+  const totalBottomY = y + 2; // borde inferior del recuadro "TOTAL"
+
   y += 12;
 
   // ---- Sello fiscal (abajo a la izquierda) ----
@@ -311,11 +313,11 @@ export function generarPdfManifiesto({
   doc.line(marginX + 60, y, marginX + 120, y);
   doc.text("FIRMA", marginX + 84, y + 4);
 
-  // ---- Tarimas entregadas (debajo de la firma, con su propio espacio
-  // para que no se encime con los recuadros de totales de arriba) ----
+  // ---- Tarimas entregadas: 1.5cm debajo del borde inferior del recuadro
+  // "TOTAL", para que nunca se encime con los totales de arriba ----
   const tarimasValidas = (tarimas ?? []).filter((t) => t.tipo && t.cantidad > 0);
   const tarimasX = rightColX - 10;
-  let ty = y + 24;
+  let ty = totalBottomY + 15;
   doc.setFontSize(7);
   doc.setFont("helvetica", "bold");
   doc.text("TARIMAS ENTREGADAS", tarimasX, ty);
