@@ -76,7 +76,7 @@ export default function RegistrosCortePage() {
     let query = supabase
       .from("corte_diario")
       .select(
-        "id, fecha, campo_id, distribuidor_id, calibre_id, cultivo_id, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
+        "id, fecha, campo_id, distribuidor_id, calibre_id, cultivo_id, clasificacion, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin)
@@ -102,6 +102,70 @@ export default function RegistrosCortePage() {
     return overrides[distribuidorId]?.[calibreId] ?? Number(cal?.cajas_por_pallet ?? 0);
   }
 
+  // El material de empaque que se descuenta automático por Corte diario no
+  // queda ligado por id a cada renglón (así se armó desde el principio),
+  // así que para revertirlo o recalcularlo al editar/eliminar hay que
+  // reconstruirlo con la misma receta (tipo_empaque + receta_empaque) que
+  // se usó al capturar -- nunca se edita/borra el movimiento original, se
+  // agregan movimientos de ajuste (mismo patrón que ya usamos en Embarques).
+  async function materialPorFilas(filas: any[]): Promise<Record<string, number>> {
+    const clasificaciones = Array.from(new Set(filas.map((f) => f.clasificacion ?? "Convencional")));
+    const { data: tiposEmpaque } = await supabase
+      .from("tipo_empaque")
+      .select("id, distribuidor_id, calibre_id, clasificacion, receta_empaque(material_id, cantidad_por_caja)")
+      .in("clasificacion", clasificaciones);
+
+    const consumo: Record<string, number> = {};
+    for (const f of filas) {
+      const clasif = f.clasificacion ?? "Convencional";
+      const tipo = (tiposEmpaque ?? []).find(
+        (t: any) => t.distribuidor_id === f.distribuidor_id && t.calibre_id === f.calibre_id && t.clasificacion === clasif
+      );
+      if (!tipo) continue;
+      for (const rr of (tipo as any).receta_empaque ?? []) {
+        consumo[rr.material_id] = (consumo[rr.material_id] ?? 0) + rr.cantidad_por_caja * Number(f.cajas);
+      }
+    }
+    return consumo;
+  }
+
+  async function recalcularStock(materialId: string, campoId: string) {
+    const { data } = await supabase
+      .from("movimiento_material_empaque")
+      .select("tipo, cantidad")
+      .eq("material_id", materialId)
+      .eq("campo_id", campoId);
+    const stock = (data ?? []).reduce(
+      (acc: number, m: any) => acc + (m.tipo === "entrada" ? Number(m.cantidad) : -Number(m.cantidad)),
+      0
+    );
+    await supabase
+      .from("inventario_materiales_empaque")
+      .upsert({ material_id: materialId, campo_id: campoId, stock_actual: stock }, { onConflict: "material_id,campo_id" });
+  }
+
+  async function ajustarMaterialPorFilas(filas: any[], tipo: "entrada" | "salida", observaciones: string) {
+    if (filas.length === 0) return;
+    const consumo = await materialPorFilas(filas);
+    const entradas = Object.entries(consumo).filter(([, cantidad]) => cantidad > 0);
+    if (entradas.length === 0) return;
+    const campoId = filas[0].campo_id;
+    const fecha = filas[0].fecha;
+    const movimientos = entradas.map(([materialId, cantidad]) => ({
+      material_id: materialId,
+      campo_id: campoId,
+      fecha,
+      tipo,
+      cantidad,
+      observaciones,
+      origen_tipo: "corte_diario",
+    }));
+    await supabase.from("movimiento_material_empaque").insert(movimientos);
+    for (const [materialId] of entradas) {
+      await recalcularStock(materialId, campoId);
+    }
+  }
+
   function empezarEdicion(r: any) {
     cancelarEdicionGrupo();
     setEditandoId(r.id);
@@ -115,21 +179,39 @@ export default function RegistrosCortePage() {
       return;
     }
     const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
+    const cajasNuevas = cantidad * tasa;
     const { error } = await supabase
       .from("corte_diario")
-      .update({ cantidad_unidades: cantidad, cajas: cantidad * tasa })
+      .update({ cantidad_unidades: cantidad, cajas: cajasNuevas })
       .eq("id", r.id);
     if (error) {
       setError(error.message);
       return;
     }
+    if (cajasNuevas !== Number(r.cajas)) {
+      await ajustarMaterialPorFilas(
+        [r],
+        "entrada",
+        `Reversión por editar corte (${r.calibres?.nombre ?? ""}, ${r.fecha})`
+      );
+      await ajustarMaterialPorFilas(
+        [{ ...r, cajas: cajasNuevas }],
+        "salida",
+        `Consumo actualizado por editar corte (${r.calibres?.nombre ?? ""}, ${r.fecha})`
+      );
+    }
     setEditandoId(null);
     consultar();
   }
 
-  async function eliminar(id: string) {
+  async function eliminar(r: any) {
     if (!confirm("¿Eliminar este renglón de corte? No se puede deshacer.")) return;
-    const { error } = await supabase.from("corte_diario").delete().eq("id", id);
+    await ajustarMaterialPorFilas(
+      [r],
+      "entrada",
+      `Reversión por eliminar renglón de corte (${r.calibres?.nombre ?? ""}, ${r.fecha})`
+    );
+    const { error } = await supabase.from("corte_diario").delete().eq("id", r.id);
     if (error) {
       setError(error.message);
       return;
@@ -144,6 +226,11 @@ export default function RegistrosCortePage() {
       )
     )
       return;
+    await ajustarMaterialPorFilas(
+      g.filas,
+      "entrada",
+      `Reversión por eliminar corte completo (${g.fecha} — ${g.campo} — ${g.cultivo})`
+    );
     const ids = g.filas.map((r: any) => r.id);
     const { error } = await supabase.from("corte_diario").delete().in("id", ids);
     if (error) {
@@ -173,7 +260,7 @@ export default function RegistrosCortePage() {
 
   async function guardarEdicionGrupo(g: any) {
     setError(null);
-    const actualizaciones: { id: string; cantidad: number }[] = [];
+    const actualizaciones: { id: string; cantidad: number; cajasNuevas: number; filaOriginal: any }[] = [];
     for (const r of g.filas) {
       const valor = edicionesGrupo[r.id];
       if (valor === undefined) continue;
@@ -183,7 +270,8 @@ export default function RegistrosCortePage() {
         return;
       }
       if (cantidad !== Number(r.cantidad_unidades)) {
-        actualizaciones.push({ id: r.id, cantidad });
+        const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
+        actualizaciones.push({ id: r.id, cantidad, cajasNuevas: cantidad * tasa, filaOriginal: r });
       }
     }
 
@@ -194,21 +282,30 @@ export default function RegistrosCortePage() {
 
     setGuardandoGrupo(true);
     const resultados = await Promise.all(
-      actualizaciones.map(({ id, cantidad }) => {
-        const r = g.filas.find((f: any) => f.id === id);
-        const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
-        return supabase
+      actualizaciones.map(({ id, cantidad, cajasNuevas }) =>
+        supabase
           .from("corte_diario")
-          .update({ cantidad_unidades: cantidad, cajas: cantidad * tasa })
-          .eq("id", id);
-      })
+          .update({ cantidad_unidades: cantidad, cajas: cajasNuevas })
+          .eq("id", id)
+      )
     );
-    setGuardandoGrupo(false);
     const errUpd = resultados.find((res) => res.error)?.error;
     if (errUpd) {
+      setGuardandoGrupo(false);
       setError(errUpd.message);
       return;
     }
+    await ajustarMaterialPorFilas(
+      actualizaciones.map((a) => a.filaOriginal),
+      "entrada",
+      `Reversión por editar corte completo (${g.fecha} — ${g.campo} — ${g.cultivo})`
+    );
+    await ajustarMaterialPorFilas(
+      actualizaciones.map((a) => ({ ...a.filaOriginal, cajas: a.cajasNuevas })),
+      "salida",
+      `Consumo actualizado por editar corte completo (${g.fecha} — ${g.campo} — ${g.cultivo})`
+    );
+    setGuardandoGrupo(false);
     cancelarEdicionGrupo();
     consultar();
   }
@@ -523,7 +620,7 @@ export default function RegistrosCortePage() {
                         <button className="btn-secondary mr-1" onClick={() => empezarEdicion(r)}>
                           Editar
                         </button>
-                        <button className="btn-danger" onClick={() => eliminar(r.id)}>
+                        <button className="btn-danger" onClick={() => eliminar(r)}>
                           Eliminar
                         </button>
                       </td>

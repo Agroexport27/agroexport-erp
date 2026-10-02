@@ -97,17 +97,11 @@ export default function CorteDiarioPage() {
     if (!campoId) return;
     supabase
       .from("cuadros")
-      .select("id, nombre, orden, cultivo_id")
+      .select("id, nombre, orden")
       .eq("campo_id", campoId)
       .order("orden")
-      .then(({ data }) => {
-        // Candado: solo se muestran los cuadros que en verdad pertenecen
-        // al cultivo elegido (evita mezclar, ej. cuadro 31 es Amarilla,
-        // no debe aparecer si el cultivo elegido es Sandía Mini normal).
-        const filtrados = (data ?? []).filter((c: any) => !cultivoId || c.cultivo_id === cultivoId);
-        setCuadros(filtrados.map((c: any) => ({ id: c.id, label: c.nombre })));
-      });
-  }, [campoId, cultivoId]);
+      .then(({ data }) => setCuadros((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
+  }, [campoId]);
 
   useEffect(() => {
     if (!cultivoId) return;
@@ -215,6 +209,16 @@ export default function CorteDiarioPage() {
     setGuardando(true);
     setError(null);
 
+    // Amarilla siempre se trata como su propia clasificacion; para los
+    // demas cultivos se usa lo que elegiste arriba (Convencional/Orgánico).
+    // Se calcula ANTES de armar las filas para poder guardarla en cada
+    // renglón -- así, si luego se edita o elimina desde Registros, se sabe
+    // con qué receta de materiales se descontó.
+    const nombreCultivoParaClasificacion = cultivos.find((c) => c.id === cultivoId)?.label ?? "";
+    const clasificacionEfectiva = nombreCultivoParaClasificacion.toLowerCase().includes("amarilla")
+      ? "Amarilla"
+      : clasificacion;
+
     const filas: any[] = [];
     for (const distId of Object.keys(renglonesPorDist)) {
       for (const r of renglonesPorDist[distId]) {
@@ -233,6 +237,7 @@ export default function CorteDiarioPage() {
             tipo_unidad: "pallet",
             cantidad_unidades: pallets,
             cajas: pallets * rate,
+            clasificacion: clasificacionEfectiva,
           });
         }
         for (const c of calibresBin) {
@@ -248,6 +253,7 @@ export default function CorteDiarioPage() {
             tipo_unidad: "bins",
             cantidad_unidades: bins,
             cajas: bins * (c.cajasPorBin ?? 0),
+            clasificacion: clasificacionEfectiva,
           });
         }
       }
@@ -267,26 +273,24 @@ export default function CorteDiarioPage() {
     }
 
     // Descuenta material de empaque automatico, segun la receta de cada
-    // distribuidor + calibre. Amarilla siempre se trata como su propia
-    // clasificacion; para los demas cultivos se usa lo que elegiste
-    // arriba (Convencional/Orgánico).
-    const nombreCultivoActual = cultivos.find((c) => c.id === cultivoId)?.label ?? "";
-    const clasificacionEfectiva = nombreCultivoActual.toLowerCase().includes("amarilla")
-      ? "Amarilla"
-      : clasificacion;
-
+    // distribuidor + calibre + clasificacion (ya calculada arriba, antes de
+    // armar las filas).
     const filasConMaterial = filas; // tanto pallet como bins pueden tener receta
     if (filasConMaterial.length > 0) {
+      const clasificacionesUsadas = Array.from(new Set(filasConMaterial.map((f) => f.clasificacion)));
       const { data: tiposEmpaque } = await supabase
         .from("tipo_empaque")
-        .select("id, distribuidor_id, calibre_id, receta_empaque(material_id, cantidad_por_caja)")
-        .eq("clasificacion", clasificacionEfectiva);
+        .select("id, distribuidor_id, calibre_id, clasificacion, receta_empaque(material_id, cantidad_por_caja)")
+        .in("clasificacion", clasificacionesUsadas);
 
       const consumoPorMaterial: Record<string, number> = {};
       let algunoSinReceta = false;
       for (const f of filasConMaterial) {
         const tipo = (tiposEmpaque ?? []).find(
-          (t: any) => t.distribuidor_id === f.distribuidor_id && t.calibre_id === f.calibre_id
+          (t: any) =>
+            t.distribuidor_id === f.distribuidor_id &&
+            t.calibre_id === f.calibre_id &&
+            t.clasificacion === f.clasificacion
         );
         if (!tipo) {
           algunoSinReceta = true;
@@ -309,6 +313,22 @@ export default function CorteDiarioPage() {
       }));
       if (movimientos.length > 0) {
         await supabase.from("movimiento_material_empaque").insert(movimientos);
+        // Mantiene el stock real sincronizado (no hay trigger de BD que lo
+        // haga solo).
+        for (const materialId of Object.keys(consumoPorMaterial)) {
+          const { data: histMaterial } = await supabase
+            .from("movimiento_material_empaque")
+            .select("tipo, cantidad")
+            .eq("material_id", materialId)
+            .eq("campo_id", campoId);
+          const stock = (histMaterial ?? []).reduce(
+            (acc: number, m: any) => acc + (m.tipo === "entrada" ? Number(m.cantidad) : -Number(m.cantidad)),
+            0
+          );
+          await supabase
+            .from("inventario_materiales_empaque")
+            .upsert({ material_id: materialId, campo_id: campoId, stock_actual: stock }, { onConflict: "material_id,campo_id" });
+        }
       }
       if (algunoSinReceta) {
         setError(
