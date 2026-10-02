@@ -97,11 +97,16 @@ export default function CorteDiarioPage() {
     if (!campoId) return;
     supabase
       .from("cuadros")
-      .select("id, nombre, orden")
+      .select("id, nombre, orden, cultivo_id")
       .eq("campo_id", campoId)
       .order("orden")
-      .then(({ data }) => setCuadros((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
-  }, [campoId]);
+      .then(({ data }) => {
+        // Candado: solo cuadros que en verdad pertenecen al cultivo elegido
+        // (ej. Sandía Mini = 1,2,3,4A,4B; Sandía Mini Amarilla = 31; Pepino = Malla 7, Malla 8).
+        const filtrados = (data ?? []).filter((c: any) => !cultivoId || c.cultivo_id === cultivoId);
+        setCuadros(filtrados.map((c: any) => ({ id: c.id, label: c.nombre })));
+      });
+  }, [campoId, cultivoId]);
 
   useEffect(() => {
     if (!cultivoId) return;
@@ -146,6 +151,20 @@ export default function CorteDiarioPage() {
     for (const d of distribuidores) inicial[d.id] = [nuevoRenglon()];
     setRenglonesPorDist(inicial);
   }, [distribuidores]);
+
+  useEffect(() => {
+    // Si cambia el cultivo, los cuadros ya elegidos pueden ya no
+    // pertenecer a el (ej. veniamos de Sandía Mini y nos vamos a Pepino) --
+    // se limpia la selección de cuadro en todos los renglones para evitar
+    // guardar un cuadro que no corresponde.
+    setRenglonesPorDist((prev) => {
+      const limpio: Record<string, Renglon[]> = {};
+      for (const [distId, renglones] of Object.entries(prev)) {
+        limpio[distId] = renglones.map((r) => ({ ...r, cuadroId: "" }));
+      }
+      return limpio;
+    });
+  }, [cultivoId]);
 
   const calibresCaja = useMemo(() => calibres.filter((c) => c.cajasPorPallet != null), [calibres]);
   const calibresBin = useMemo(() => calibres.filter((c) => c.cajasPorBin != null), [calibres]);
