@@ -1,5 +1,27 @@
 import { generarPdfManifiesto } from "@/lib/pdf/manifiesto";
 
+// Para Dulcinea, el manifiesto no muestra el nombre real del cuadro sino un
+// código de "Work Order" que agrupa varios cuadros de un mismo campo.
+const WORK_ORDER_DULCINEA: Record<string, string> = {
+  C31: "26AGRSO2",
+  "1": "26AGRSO1",
+  "2": "26AGRSO1",
+  "3": "26AGRSO3",
+  "4A": "26AGRSO3",
+  "4B": "26AGRSO4",
+};
+
+function nombreParaManifiesto(cuadroNombre: string, distribuidorNombre: string): string {
+  if (!cuadroNombre) return cuadroNombre;
+  if (!/dulcinea/i.test(distribuidorNombre)) return cuadroNombre;
+  const partes = cuadroNombre
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const traducidas = partes.map((p) => WORK_ORDER_DULCINEA[p.toUpperCase()] ?? p);
+  return Array.from(new Set(traducidas)).join(", ");
+}
+
 function parseSerieFolio(manifiesto: string | null): { serie: string; folio: string } {
   if (!manifiesto) return { serie: "", folio: "" };
   const m = manifiesto.trim().match(/^([A-Za-z])\s*-?\s*(\d+)$/);
@@ -29,11 +51,12 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
       cajasPorPallet: d.calibres?.cajas_por_pallet != null ? Number(d.calibres.cajas_por_pallet) : null,
     }));
 
-  const cuadroNombre =
+  const cuadroNombreReal =
     (remision.remision_envio_cuadro ?? [])
       .map((x: any) => x.cuadros?.nombre)
       .filter(Boolean)
       .join(", ") || remision.cuadros?.nombre || "";
+  const cuadroNombre = nombreParaManifiesto(cuadroNombreReal, remision.distribuidores?.nombre ?? "");
 
   const tarimas = [
     { tipo: remision.tipo_tarima ?? "", cantidad: Number(remision.cantidad_tarimas ?? 0) },
