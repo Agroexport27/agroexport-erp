@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { generarExcelReporteNominas, FilaResumen, FilaJerarquia } from "@/lib/excel/reporteNominas";
+import { generarExcelReporteNominas, FilaResumen } from "@/lib/excel/reporteNominas";
 import { generarPdfReporteNominas } from "@/lib/pdf/reporteNominas";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -20,27 +21,14 @@ export default function ReportesNominasPage() {
   const supabase = createClient();
 
   const [campos, setCampos] = useState<Opcion[]>([]);
-  const [actividadesOpciones, setActividadesOpciones] = useState<Opcion[]>([]);
-  const [cultivosOpciones, setCultivosOpciones] = useState<Opcion[]>([]);
-  const [ciclos, setCiclos] = useState<{ id: string; clave: string; fecha_inicio: string; fecha_fin: string }[]>([]);
   const [hectareasPorCampo, setHectareasPorCampo] = useState<Record<string, number>>({});
-  const [hectareasPorCampoFisico, setHectareasPorCampoFisico] = useState<Record<string, number>>({});
-  const [camposConProgramaReal, setCamposConProgramaReal] = useState<Set<string>>(new Set());
-  const [hectareasPorCampoCultivo, setHectareasPorCampoCultivo] = useState<Record<string, Record<string, number>>>({});
-  const [ordenPorCuadro, setOrdenPorCuadro] = useState<Record<string, number>>({});
   const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [fechaInicio, setFechaInicio] = useState(inicioDeSemanaActual());
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
-  const [tipoNomina, setTipoNomina] = useState<"" | "eventual" | "planta" | "temporal">("");
-  const [actividadId, setActividadId] = useState("");
-  const [cultivoId, setCultivoId] = useState("");
-  const [periodoSemana, setPeriodoSemana] = useState("");
-  const [periodoAnio, setPeriodoAnio] = useState("");
-  const [cicloId, setCicloId] = useState("");
 
   useEffect(() => {
     supabase
@@ -52,117 +40,18 @@ export default function ReportesNominasPage() {
 
     supabase
       .from("cuadros")
-      .select("id, nombre, hectareas, orden, campos(nombre)")
+      .select("hectareas, campos(nombre)")
       .then(({ data }) => {
         const totales: Record<string, number> = {};
-        const orden: Record<string, number> = {};
         for (const c of (data ?? []) as any[]) {
           const nombreCampo = c.campos?.nombre;
           if (!nombreCampo) continue;
           totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(c.hectareas ?? 0);
-          if (c.orden != null && orden[c.nombre] === undefined) {
-            orden[c.nombre] = c.orden;
-          }
         }
         setHectareasPorCampo(totales);
-        setHectareasPorCampoFisico(totales);
-        setOrdenPorCuadro(orden);
       });
-
-    // Hectareas por cultivo, tomadas del Programa (cuadro_ciclo) de los
-    // ciclos activos — mas preciso que el "cultivo actual" del cuadro,
-    // porque respeta si solo una parte del cuadro esta sembrada.
-    supabase
-      .from("ciclos")
-      .select("id")
-      .in("clave", ["2026-2", "2027-1"])
-      .then(async ({ data: ciclosActivos }) => {
-        const idsCiclos = (ciclosActivos ?? []).map((c: any) => c.id);
-        if (idsCiclos.length === 0) return;
-        const { data } = await supabase
-          .from("cuadro_ciclo")
-          .select("hectareas, cuadros(campos(nombre)), variedades(cultivo_id)")
-          .in("ciclo_id", idsCiclos);
-        const porCampoCultivo: Record<string, Record<string, number>> = {};
-        for (const r of (data ?? []) as any[]) {
-          const nombreCampo = r.cuadros?.campos?.nombre;
-          const cultivoId = r.variedades?.cultivo_id;
-          if (!nombreCampo || !cultivoId) continue;
-          porCampoCultivo[nombreCampo] = porCampoCultivo[nombreCampo] ?? {};
-          porCampoCultivo[nombreCampo][cultivoId] =
-            (porCampoCultivo[nombreCampo][cultivoId] ?? 0) + Number(r.hectareas ?? 0);
-        }
-        setHectareasPorCampoCultivo(porCampoCultivo);
-      });
-
-    supabase
-      .from("actividades")
-      .select("id, nombre")
-      .order("nombre")
-      .then(({ data }) => setActividadesOpciones((data ?? []).map((a: any) => ({ id: a.id, label: a.nombre }))));
-
-    supabase
-      .from("ciclos")
-      .select("id, clave, fecha_inicio, fecha_fin")
-      .order("clave", { ascending: false })
-      .then(({ data }) => setCiclos(data ?? []));
-
-    supabase
-      .from("cultivos")
-      .select("id, nombre, clave_contable")
-      .order("nombre")
-      .then(({ data }) =>
-        setCultivosOpciones(
-          (data ?? []).map((c: any) => ({ id: c.id, label: `${c.clave_contable ?? c.nombre} — ${c.nombre}` }))
-        )
-      );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function aplicarCiclo(id: string) {
-    setCicloId(id);
-    const c = ciclos.find((c) => c.id === id);
-    if (c) {
-      setFechaInicio(c.fecha_inicio);
-      setFechaFin(c.fecha_fin);
-    }
-  }
-
-  // Cuando eliges un ciclo especifico, las hectareas por campo (usadas
-  // en "Costo por campo" y para prorratear "General") pasan a ser las
-  // del Programa de ESE ciclo (no el total fisico del campo), sin
-  // contar Solarizado (que no es un cultivo productivo). Naranja y
-  // demas perennes SI cuentan normal. Si un campo no tiene nada
-  // capturado en ese ciclo, se deja en 1 ha (relleno).
-  useEffect(() => {
-    if (!cicloId) {
-      setHectareasPorCampo(hectareasPorCampoFisico);
-      setCamposConProgramaReal(new Set(Object.keys(hectareasPorCampoFisico)));
-      return;
-    }
-    supabase
-      .from("cuadro_ciclo")
-      .select("hectareas, cuadros(campos(nombre)), variedades(cultivos(nombre, perenne))")
-      .eq("ciclo_id", cicloId)
-      .then(({ data }) => {
-        const totales: Record<string, number> = {};
-        for (const r of (data ?? []) as any[]) {
-          const nombreCampo = r.cuadros?.campos?.nombre;
-          const cultivo = r.variedades?.cultivos;
-          if (!nombreCampo) continue;
-          // Solo el Solarizado se excluye (no es un cultivo productivo).
-          if (cultivo?.nombre === "Solarizado") continue;
-          totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(r.hectareas ?? 0);
-        }
-        setCamposConProgramaReal(new Set(Object.keys(totales)));
-        // Campos sin nada capturado en este ciclo -> 1 ha (relleno)
-        for (const c of campos) {
-          if (!(c.label in totales)) totales[c.label] = 1;
-        }
-        setHectareasPorCampo(totales);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cicloId, hectareasPorCampoFisico, campos]);
 
   async function consultar() {
     setLoading(true);
@@ -170,16 +59,12 @@ export default function ReportesNominasPage() {
     let query = supabase
       .from("apuntador_diario")
       .select(
-        "id, fecha, total, periodo, periodo_anio, tipo_nomina, cultivo_id, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
+        "id, fecha, total, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin);
 
     if (campoId) query = query.eq("campo_id", campoId);
-    if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
-    if (actividadId) query = query.eq("actividad_id", actividadId);
-    if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
-    if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
 
     const { data, error } = await query;
     if (error) setError(error.message);
@@ -192,172 +77,7 @@ export default function ReportesNominasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Calcula cuanto de un registro le corresponde al cultivo filtrado.
-  // Sin filtro: el total completo. Con filtro: si el registro ya tiene
-  // cultivo, todo o nada; si es "General", su parte prorrateada segun
-  // hectareas de ese cultivo en el campo.
-  function montoEfectivo(r: any): number {
-    const total = Number(r.total ?? 0);
-    if (!cultivoId) return total;
-    if (r.cultivo_id) return r.cultivo_id === cultivoId ? total : 0;
-    const nombreCampo = r.campos?.nombre ?? "Sin campo";
-    const pesos = hectareasPorCampoCultivo[nombreCampo];
-    const denom = pesos ? Object.values(pesos).reduce((s, h) => s + h, 0) : 0;
-    const hasCultivo = pesos?.[cultivoId] ?? 0;
-    if (!denom || !hasCultivo) return 0;
-    return total * (hasCultivo / denom);
-  }
-
-  const jerarquia = useMemo(() => {
-    type NodoActividad = { nombre: string; registros: number; total: number };
-    type NodoCuadro = {
-      nombre: string;
-      hectareas: number | null;
-      total: number;
-      actividades: Map<string, NodoActividad>;
-    };
-    type NodoCampo = {
-      nombre: string;
-      hectareas: number | null;
-      total: number;
-      cuadros: Map<string, NodoCuadro>;
-    };
-
-    const campoMap = new Map<string, NodoCampo>();
-
-    for (const r of registros) {
-      const total = montoEfectivo(r);
-      if (total === 0 && cultivoId) continue;
-      const nombreCampo = r.campos?.nombre ?? "Sin campo";
-      const nombreCuadro = r.cuadros?.nombre ?? "General";
-      const nombreActividad = r.actividades?.nombre ?? "Sin actividad";
-
-      const campo =
-        campoMap.get(nombreCampo) ??
-        { nombre: nombreCampo, hectareas: hectareasPorCampo[nombreCampo] ?? null, total: 0, cuadros: new Map() };
-      campo.total += total;
-
-      const cuadro =
-        campo.cuadros.get(nombreCuadro) ??
-        {
-          nombre: nombreCuadro,
-          hectareas:
-            nombreCuadro === "General"
-              ? hectareasPorCampo[nombreCampo] ?? null
-              : r.cuadros?.hectareas ?? null,
-          total: 0,
-          actividades: new Map(),
-        };
-      cuadro.total += total;
-
-      const actividad =
-        cuadro.actividades.get(nombreActividad) ??
-        { nombre: nombreActividad, registros: 0, total: 0 };
-      actividad.registros += 1;
-      actividad.total += total;
-
-      cuadro.actividades.set(nombreActividad, actividad);
-      campo.cuadros.set(nombreCuadro, cuadro);
-      campoMap.set(nombreCampo, campo);
-    }
-
-    return Array.from(campoMap.values())
-      .map((c) => ({
-        ...c,
-        cuadros: Array.from(c.cuadros.values())
-          .map((q) => ({
-            ...q,
-            actividades: Array.from(q.actividades.values()).sort((a, b) => b.total - a.total),
-          }))
-          .sort((a, b) => (ordenPorCuadro[a.nombre] ?? 9999) - (ordenPorCuadro[b.nombre] ?? 9999)),
-      }))
-      .sort((a, b) => b.total - a.total);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registros, hectareasPorCampo, hectareasPorCampoCultivo, ordenPorCuadro, cultivoId]);
-
-  const jerarquiaPorActividad = useMemo(() => {
-    type NodoCuadro = { nombre: string; registros: number; total: number; hectareas: number | null };
-    type NodoActividad = {
-      nombre: string;
-      total: number;
-      cuadros: Map<string, NodoCuadro>;
-    };
-    type NodoCampo = {
-      nombre: string;
-      hectareas: number | null;
-      total: number;
-      actividades: Map<string, NodoActividad>;
-    };
-
-    const campoMap = new Map<string, NodoCampo>();
-
-    for (const r of registros) {
-      const total = montoEfectivo(r);
-      if (total === 0 && cultivoId) continue;
-      const nombreCampo = r.campos?.nombre ?? "Sin campo";
-      const nombreCuadro = r.cuadros?.nombre ?? "General";
-      const nombreActividad = r.actividades?.nombre ?? "Sin actividad";
-
-      const campo =
-        campoMap.get(nombreCampo) ??
-        { nombre: nombreCampo, hectareas: hectareasPorCampo[nombreCampo] ?? null, total: 0, actividades: new Map() };
-      campo.total += total;
-
-      const actividad =
-        campo.actividades.get(nombreActividad) ??
-        { nombre: nombreActividad, total: 0, cuadros: new Map() };
-      actividad.total += total;
-
-      const cuadro =
-        actividad.cuadros.get(nombreCuadro) ??
-        {
-          nombre: nombreCuadro,
-          registros: 0,
-          total: 0,
-          hectareas:
-            nombreCuadro === "General"
-              ? hectareasPorCampo[nombreCampo] ?? null
-              : r.cuadros?.hectareas ?? null,
-        };
-      cuadro.registros += 1;
-      cuadro.total += total;
-
-      actividad.cuadros.set(nombreCuadro, cuadro);
-      campo.actividades.set(nombreActividad, actividad);
-      campoMap.set(nombreCampo, campo);
-    }
-
-    return Array.from(campoMap.values())
-      .map((c) => ({
-        ...c,
-        actividades: Array.from(c.actividades.values())
-          .map((a) => ({
-            ...a,
-            cuadros: Array.from(a.cuadros.values()).sort(
-              (x, y) => (ordenPorCuadro[x.nombre] ?? 9999) - (ordenPorCuadro[y.nombre] ?? 9999)
-            ),
-          }))
-          .sort((a, b) => b.total - a.total),
-      }))
-      .sort((a, b) => b.total - a.total);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registros, hectareasPorCampo, hectareasPorCampoCultivo, ordenPorCuadro, cultivoId]);
-
   const { porCampo, porCuadro, porActividad, porCuadroActividad, granTotal } = useMemo(() => {
-    const nombreCampoFiltrado = campos.find((c) => c.id === campoId)?.label;
-    // Hectareas a usar para "General": las del campo filtrado, o la suma
-    // de los campos que aparecen en lo que consultas Y que ademas
-    // tienen Programa de hortaliza real en este ciclo (no perennes, no
-    // relleno) — asi campos como vigilancia en un campo cerrado no
-    // inflan la cuenta.
-    const camposEnRegistros = new Set(registros.map((r) => r.campos?.nombre).filter(Boolean));
-    const camposRelevantes = Array.from(camposEnRegistros).filter(
-      (c) => camposConProgramaReal.size === 0 || camposConProgramaReal.has(c)
-    );
-    const hectareasGeneral = nombreCampoFiltrado
-      ? hectareasPorCampo[nombreCampoFiltrado] ?? null
-      : camposRelevantes.reduce((s, c) => s + (hectareasPorCampo[c] ?? 0), 0) || null;
-
     const campoMap = new Map<string, FilaResumen>();
     const cuadroMap = new Map<string, FilaResumen>();
     const actividadMap = new Map<string, FilaResumen>();
@@ -365,8 +85,7 @@ export default function ReportesNominasPage() {
     let granTotal = 0;
 
     for (const r of registros) {
-      const total = montoEfectivo(r);
-      if (total === 0 && cultivoId) continue;
+      const total = Number(r.total ?? 0);
       granTotal += total;
 
       const nombreCampo = r.campos?.nombre ?? "Sin campo";
@@ -380,20 +99,13 @@ export default function ReportesNominasPage() {
       const nombreCuadro = r.cuadros?.nombre ?? "General";
       const q =
         cuadroMap.get(nombreCuadro) ??
-        {
-          nombre: nombreCuadro,
-          registros: 0,
-          total: 0,
-          hectareas: nombreCuadro === "General" ? hectareasGeneral : r.cuadros?.hectareas ?? null,
-        };
+        { nombre: nombreCuadro, registros: 0, total: 0, hectareas: r.cuadros?.hectareas ?? null };
       q.registros++;
       q.total += total;
       cuadroMap.set(nombreCuadro, q);
 
       const nombreActividad = r.actividades?.nombre ?? "Sin actividad";
-      const a =
-        actividadMap.get(nombreActividad) ??
-        { nombre: nombreActividad, registros: 0, total: 0, hectareas: hectareasGeneral };
+      const a = actividadMap.get(nombreActividad) ?? { nombre: nombreActividad, registros: 0, total: 0 };
       a.registros++;
       a.total += total;
       actividadMap.set(nombreActividad, a);
@@ -407,39 +119,16 @@ export default function ReportesNominasPage() {
       cruceMap.set(claveCruce, x);
     }
 
-    const ordenTotal = (a: FilaResumen, b: FilaResumen) => b.total - a.total;
-    const ordenCuadro = (a: FilaResumen, b: FilaResumen) =>
-      (ordenPorCuadro[a.nombre] ?? 9999) - (ordenPorCuadro[b.nombre] ?? 9999);
+    const orden = (a: FilaResumen, b: FilaResumen) => b.total - a.total;
 
     return {
-      porCampo: Array.from(campoMap.values()).sort(ordenTotal),
-      porCuadro: Array.from(cuadroMap.values()).sort(ordenCuadro),
-      porActividad: Array.from(actividadMap.values()).sort(ordenTotal),
+      porCampo: Array.from(campoMap.values()).sort(orden),
+      porCuadro: Array.from(cuadroMap.values()).sort(orden),
+      porActividad: Array.from(actividadMap.values()).sort(orden),
       porCuadroActividad: Array.from(cruceMap.values()).sort((a, b) => b.total - a.total),
       granTotal,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registros, hectareasPorCampo, ordenPorCuadro, campos, campoId, cultivoId, hectareasPorCampoCultivo, camposConProgramaReal]);
-
-  const jerarquiaPlana: FilaJerarquia[] = useMemo(() => {
-    const filas: FilaJerarquia[] = [];
-    for (const campo of jerarquia) {
-      for (const cuadro of campo.cuadros) {
-        for (const act of cuadro.actividades) {
-          filas.push({
-            campo: campo.nombre,
-            hectareasCampo: campo.hectareas,
-            cuadro: cuadro.nombre,
-            hectareasCuadro: cuadro.hectareas,
-            actividad: act.nombre,
-            registros: act.registros,
-            gasto: act.total,
-          });
-        }
-      }
-    }
-    return filas;
-  }, [jerarquia]);
+  }, [registros, hectareasPorCampo]);
 
   function descargarExcel() {
     generarExcelReporteNominas({
@@ -447,7 +136,6 @@ export default function ReportesNominasPage() {
       porCuadro,
       porActividad,
       porCuadroActividad,
-      jerarquia: jerarquiaPlana,
       rango: `${fechaInicio}_a_${fechaFin}`,
     });
   }
@@ -457,8 +145,7 @@ export default function ReportesNominasPage() {
       porCampo,
       porCuadro,
       porActividad,
-      jerarquia,
-      jerarquiaPorActividad,
+      porCuadroActividad,
       rango: `${fechaInicio}_a_${fechaFin}`,
       granTotal,
     });
@@ -482,15 +169,16 @@ export default function ReportesNominasPage() {
           <thead className="text-left text-xs font-medium text-campo-600">
             <tr>
               <th className="px-4 py-2">Nombre</th>
-              <th className="px-4 py-2">Total</th>
+              <th className="px-4 py-2">Registros</th>
               {conHectareas && <th className="px-4 py-2">Hectáreas</th>}
               {conHectareas && <th className="px-4 py-2">Costo/ha</th>}
+              <th className="px-4 py-2">Total</th>
             </tr>
           </thead>
           <tbody>
             {filas.length === 0 && (
               <tr>
-                <td className="px-4 py-4 text-campo-400" colSpan={conHectareas ? 4 : 2}>
+                <td className="px-4 py-4 text-campo-400" colSpan={conHectareas ? 5 : 3}>
                   Sin datos en el rango seleccionado.
                 </td>
               </tr>
@@ -498,9 +186,11 @@ export default function ReportesNominasPage() {
             {filas.map((f) => (
               <tr key={f.nombre} className="border-t border-campo-50">
                 <td className="px-4 py-2 text-campo-800">{f.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">${f.total.toFixed(2)}</td>
+                <td className="px-4 py-2 text-campo-800">{f.registros}</td>
                 {conHectareas && (
-                  <td className="px-4 py-2 text-campo-800">{f.hectareas ?? "—"}</td>
+                  <td className="px-4 py-2 text-campo-800">
+                    {f.hectareas ?? "—"}
+                  </td>
                 )}
                 {conHectareas && (
                   <td className="px-4 py-2 text-campo-800">
@@ -509,6 +199,9 @@ export default function ReportesNominasPage() {
                       : "—"}
                   </td>
                 )}
+                <td className="px-4 py-2 text-campo-800">
+                  ${f.total.toFixed(2)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -523,8 +216,8 @@ export default function ReportesNominasPage() {
         Reportes de costo — Nóminas
       </h1>
       <p className="mb-6 text-sm text-campo-600">
-        Costo de mano de obra por campo, cuadro, actividad y cultivo, en el
-        rango que elijas.
+        Costo de mano de obra por campo, cuadro y actividad, en el rango que
+        elijas.
       </p>
 
       {error && (
@@ -533,69 +226,41 @@ export default function ReportesNominasPage() {
         </div>
       )}
 
-      <div className="card mb-6 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-4">
+      <div className="card mb-6 grid grid-cols-4 items-end gap-3 p-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">
-            Ciclo (opcional, llena fechas)
+            Desde
           </label>
-          <select className="input" value={cicloId} onChange={(e) => aplicarCiclo(e.target.value)}>
-            <option value="">— Manual —</option>
-            {ciclos.map((c) => (
-              <option key={c.id} value={c.id}>{c.clave}</option>
-            ))}
-          </select>
+          <input
+            type="date"
+            className="input"
+            value={fechaInicio}
+            onChange={(e) => setFechaInicio(e.target.value)}
+          />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Desde</label>
-          <input type="date" className="input" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
+          <label className="mb-1 block text-xs font-medium text-campo-600">
+            Hasta
+          </label>
+          <input
+            type="date"
+            className="input"
+            value={fechaFin}
+            onChange={(e) => setFechaFin(e.target.value)}
+          />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Hasta</label>
-          <input type="date" className="input" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Campo</label>
+          <label className="mb-1 block text-xs font-medium text-campo-600">
+            Campo (opcional)
+          </label>
           <select className="input" value={campoId} onChange={(e) => setCampoId(e.target.value)}>
             <option value="">Todos</option>
             {campos.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de nómina</label>
-          <select className="input" value={tipoNomina} onChange={(e) => setTipoNomina(e.target.value as any)}>
-            <option value="">Todos (mezclados)</option>
-            <option value="eventual">Eventual (sábado-viernes)</option>
-            <option value="planta">Planta (miércoles-martes)</option>
-            <option value="temporal">Temporal (miércoles-martes)</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Cultivo</label>
-          <select className="input" value={cultivoId} onChange={(e) => setCultivoId(e.target.value)}>
-            <option value="">Todos</option>
-            {cultivosOpciones.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Actividad</label>
-          <select className="input" value={actividadId} onChange={(e) => setActividadId(e.target.value)}>
-            <option value="">Todas</option>
-            {actividadesOpciones.map((a) => (
-              <option key={a.id} value={a.id}>{a.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Semana (periodo)</label>
-          <input type="number" className="input" placeholder="ej. 3" value={periodoSemana} onChange={(e) => setPeriodoSemana(e.target.value)} />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Año del periodo</label>
-          <input type="number" className="input" placeholder="ej. 2026" value={periodoAnio} onChange={(e) => setPeriodoAnio(e.target.value)} />
         </div>
         <button className="btn-primary" onClick={consultar} disabled={loading}>
           {loading ? "Consultando..." : "Consultar"}
@@ -605,146 +270,95 @@ export default function ReportesNominasPage() {
       <div className="card mb-6 flex items-center justify-between p-4">
         <div>
           <p className="text-xs text-campo-500">Total del periodo</p>
-          <p className="text-2xl font-semibold text-campo-900">${granTotal.toFixed(2)}</p>
-          {cultivoId && (
-            <p className="text-xs text-campo-500">
-              Filtrado por cultivo — los registros "General" se prorratearon por hectárea.
-            </p>
-          )}
+          <p className="text-2xl font-semibold text-campo-900">
+            ${granTotal.toFixed(2)}
+          </p>
+          <p className="text-xs text-campo-500">{registros.length} registros</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary" onClick={descargarExcel}>Descargar Excel</button>
-          <button className="btn-secondary" onClick={descargarPdf}>Descargar PDF</button>
+          <button className="btn-secondary" onClick={descargarExcel}>
+            Descargar Excel
+          </button>
+          <button className="btn-secondary" onClick={descargarPdf}>
+            Descargar PDF
+          </button>
         </div>
       </div>
 
       <TablaResumen titulo="Costo por campo" filas={porCampo} conHectareas />
       <TablaResumen titulo="Costo por cuadro" filas={porCuadro} conHectareas />
-      <p className="mb-2 text-xs text-tierra-600">
-        {campoId
-          ? "\"Costo por actividad\" usa las hectáreas del campo filtrado."
-          : "\"Costo por actividad\" usa la suma de hectáreas de los campos que aparecen en lo que consultaste (no filtraste ninguno)."}{" "}
-        Cuando tengamos el Programa real, se ajusta a los cuadros realmente activos.
-      </p>
-      <TablaResumen titulo="Costo por actividad" filas={porActividad} conHectareas />
+      <TablaResumen titulo="Costo por actividad" filas={porActividad} />
 
       <h2 className="mb-2 mt-8 text-sm font-semibold text-campo-800">
-        Desglose por campo: Cuadros
+        Desglose por cuadro (actividades dentro de cada cuadro)
       </h2>
-      {jerarquia.map((campo) => {
-        const costoHaCampo =
-          campo.hectareas && campo.hectareas > 0 ? campo.total / campo.hectareas : null;
+      {porCuadro.map((q) => {
+        const detalle = porCuadroActividad
+          .filter((x) => x.cuadro === q.nombre)
+          .sort((a, b) => b.total - a.total);
         return (
-          <details key={campo.nombre} className="card mb-2 overflow-hidden">
-            <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-100 px-4 py-2">
-              <span className="text-sm font-semibold text-campo-900">{campo.nombre}</span>
-              <span className="flex gap-4 text-sm text-campo-700">
-                <span className="font-semibold">${campo.total.toFixed(2)}</span>
-                <span>{campo.hectareas ? `${campo.hectareas} ha` : "—"}</span>
-                <span>{costoHaCampo != null ? `$${costoHaCampo.toFixed(2)}/ha` : "—"}</span>
+          <details key={q.nombre} className="card mb-2 overflow-hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
+              <span className="text-sm font-medium text-campo-800">
+                {q.nombre}
               </span>
+              <span className="text-sm text-campo-600">${q.total.toFixed(2)}</span>
             </summary>
-
-            <div className="px-3 py-2">
-              {campo.cuadros.map((cuadro) => {
-                const costoHaCuadro =
-                  cuadro.hectareas && cuadro.hectareas > 0 ? cuadro.total / cuadro.hectareas : null;
-                return (
-                  <details key={cuadro.nombre} className="mb-1 rounded border border-campo-100">
-                    <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-3 py-1.5">
-                      <span className="text-sm text-campo-800">{cuadro.nombre}</span>
-                      <span className="flex gap-4 text-xs text-campo-600">
-                        <span className="font-medium">${cuadro.total.toFixed(2)}</span>
-                        <span>{cuadro.hectareas ? `${cuadro.hectareas} ha` : "—"}</span>
-                        <span>{costoHaCuadro != null ? `$${costoHaCuadro.toFixed(2)}/ha` : "—"}</span>
-                      </span>
-                    </summary>
-                    <table className="w-full text-sm">
-                      <thead className="text-left text-xs font-medium text-campo-500">
-                        <tr>
-                          <th className="px-4 py-1">Actividad</th>
-                          <th className="px-4 py-1">Gasto total</th>
-                          <th className="px-4 py-1">Gasto/ha</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cuadro.actividades.map((act) => (
-                          <tr key={act.nombre} className="border-t border-campo-50">
-                            <td className="px-4 py-1 text-campo-800">{act.nombre}</td>
-                            <td className="px-4 py-1 text-campo-800">${act.total.toFixed(2)}</td>
-                            <td className="px-4 py-1 text-campo-800">
-                              {cuadro.hectareas && cuadro.hectareas > 0
-                                ? `$${(act.total / cuadro.hectareas).toFixed(2)}`
-                                : "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </details>
-                );
-              })}
-            </div>
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs font-medium text-campo-600">
+                <tr>
+                  <th className="px-4 py-2">Actividad</th>
+                  <th className="px-4 py-2">Registros</th>
+                  <th className="px-4 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalle.map((d) => (
+                  <tr key={d.actividad} className="border-t border-campo-50">
+                    <td className="px-4 py-2 text-campo-800">{d.actividad}</td>
+                    <td className="px-4 py-2 text-campo-800">{d.registros}</td>
+                    <td className="px-4 py-2 text-campo-800">${d.total.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </details>
         );
       })}
 
       <h2 className="mb-2 mt-8 text-sm font-semibold text-campo-800">
-        Desglose por campo: Actividades
+        Desglose por actividad (cuadros dentro de cada actividad)
       </h2>
-      {jerarquiaPorActividad.map((campo) => {
-        const costoHaCampo =
-          campo.hectareas && campo.hectareas > 0 ? campo.total / campo.hectareas : null;
+      {porActividad.map((a) => {
+        const detalle = porCuadroActividad
+          .filter((x) => x.actividad === a.nombre)
+          .sort((x, y) => y.total - x.total);
         return (
-          <details key={campo.nombre} className="card mb-2 overflow-hidden">
-            <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-100 px-4 py-2">
-              <span className="text-sm font-semibold text-campo-900">{campo.nombre}</span>
-              <span className="flex gap-4 text-sm text-campo-700">
-                <span className="font-semibold">${campo.total.toFixed(2)}</span>
-                <span>{campo.hectareas ? `${campo.hectareas} ha` : "—"}</span>
-                <span>{costoHaCampo != null ? `$${costoHaCampo.toFixed(2)}/ha` : "—"}</span>
+          <details key={a.nombre} className="card mb-2 overflow-hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-4 py-2">
+              <span className="text-sm font-medium text-campo-800">
+                {a.nombre}
               </span>
+              <span className="text-sm text-campo-600">${a.total.toFixed(2)}</span>
             </summary>
-
-            <div className="px-3 py-2">
-              {campo.actividades.map((actividad) => (
-                <details key={actividad.nombre} className="mb-1 rounded border border-campo-100">
-                  <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-50 px-3 py-1.5">
-                    <span className="text-sm text-campo-800">{actividad.nombre}</span>
-                    <span className="flex gap-3 text-xs text-campo-600">
-                      <span className="font-medium">${actividad.total.toFixed(2)}</span>
-                      <span>
-                        {campo.hectareas && campo.hectareas > 0
-                          ? `$${(actividad.total / campo.hectareas).toFixed(2)}/ha`
-                          : "—"}
-                      </span>
-                    </span>
-                  </summary>
-                  <table className="w-full text-sm">
-                    <thead className="text-left text-xs font-medium text-campo-500">
-                      <tr>
-                        <th className="px-4 py-1">Cuadro</th>
-                        <th className="px-4 py-1">Gasto total</th>
-                        <th className="px-4 py-1">Gasto/ha</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {actividad.cuadros.map((cuadro) => (
-                        <tr key={cuadro.nombre} className="border-t border-campo-50">
-                          <td className="px-4 py-1 text-campo-800">{cuadro.nombre}</td>
-                          <td className="px-4 py-1 text-campo-800">${cuadro.total.toFixed(2)}</td>
-                          <td className="px-4 py-1 text-campo-800">
-                            {cuadro.hectareas && cuadro.hectareas > 0
-                              ? `$${(cuadro.total / cuadro.hectareas).toFixed(2)}`
-                              : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </details>
-              ))}
-            </div>
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs font-medium text-campo-600">
+                <tr>
+                  <th className="px-4 py-2">Cuadro</th>
+                  <th className="px-4 py-2">Registros</th>
+                  <th className="px-4 py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalle.map((d) => (
+                  <tr key={d.cuadro} className="border-t border-campo-50">
+                    <td className="px-4 py-2 text-campo-800">{d.cuadro}</td>
+                    <td className="px-4 py-2 text-campo-800">{d.registros}</td>
+                    <td className="px-4 py-2 text-campo-800">${d.total.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </details>
         );
       })}

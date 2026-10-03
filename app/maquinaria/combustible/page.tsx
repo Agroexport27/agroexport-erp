@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import BuscadorEmpleado from "@/components/BuscadorEmpleado";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string; tipo?: string };
 type Empleado = { id: string; clave: string; nombre: string };
@@ -22,7 +23,7 @@ export default function CombustiblePage() {
 
   const [tipoCombustible, setTipoCombustible] = useState<"diesel" | "gasolina">("diesel");
   const [tipoMovimiento, setTipoMovimiento] = useState<"entrada" | "salida">("salida");
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [litros, setLitros] = useState("");
   const [unidadId, setUnidadId] = useState("");
@@ -51,7 +52,7 @@ export default function CombustiblePage() {
   async function cargarCatalogos() {
     const [{ data: camp }, { data: uni }] = await Promise.all([
       supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-      supabase.from("vehiculos").select("id, nombre, tipo_combustible").eq("activo", true).order("nombre"),
+      supabase.from("catalogo_unidades").select("id, nombre, tipo_combustible").eq("activo", true).order("nombre"),
     ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setUnidades((uni ?? []).map((u: any) => ({ id: u.id, label: u.nombre, tipo: u.tipo_combustible })));
@@ -76,7 +77,7 @@ export default function CombustiblePage() {
     const { data, error } = await supabase
       .from("combustible_movimientos")
       .select(
-        "id, tipo_combustible, tipo, fecha, litros, folio, observaciones, campos(nombre), vehiculos(nombre), empleados(clave, nombre)"
+        "id, tipo_combustible, tipo, fecha, litros, folio, observaciones, campos(nombre), catalogo_unidades(nombre), empleados(clave, nombre)"
       )
       .order("created_at", { ascending: false })
       .limit(30);
@@ -118,7 +119,7 @@ export default function CombustiblePage() {
       fecha,
       tipo: tipoMovimiento,
       litros: parseFloat(litros),
-      vehiculo_id: tipoMovimiento === "salida" ? unidadId : null,
+      unidad_id: tipoMovimiento === "salida" ? unidadId : null,
       chofer_empleado_id: tipoMovimiento === "salida" ? choferEmpleadoId : null,
       folio: folio || null,
       observaciones: observaciones || null,
@@ -310,7 +311,7 @@ export default function CombustiblePage() {
                 </td>
                 <td className="px-4 py-2 text-campo-800 capitalize">{m.tipo_combustible}</td>
                 <td className="px-4 py-2 text-campo-800">{m.campos?.nombre}</td>
-                <td className="px-4 py-2 text-campo-800">{m.vehiculos?.nombre ?? "—"}</td>
+                <td className="px-4 py-2 text-campo-800">{m.catalogo_unidades?.nombre ?? "—"}</td>
                 <td className="px-4 py-2 text-campo-800">
                   {m.empleados ? `${m.empleados.clave} — ${m.empleados.nombre}` : "—"}
                 </td>

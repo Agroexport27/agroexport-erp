@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelReporteCombustible } from "@/lib/excel/reporteCombustible";
 import { generarPdfReporteCombustible } from "@/lib/pdf/reporteCombustible";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -18,7 +19,7 @@ export default function ReportesCombustiblePage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [tipoCombustible, setTipoCombustible] = useState<"" | "diesel" | "gasolina">("");
   const [campoId, setCampoId] = useState("");
 
@@ -37,7 +38,7 @@ export default function ReportesCombustiblePage() {
     let query = supabase
       .from("combustible_movimientos")
       .select(
-        "id, fecha, tipo_combustible, tipo, litros, folio, campos(nombre), vehiculos(nombre), empleados(clave, nombre)"
+        "id, fecha, tipo_combustible, tipo, litros, folio, campos(nombre), catalogo_unidades(nombre), empleados(clave, nombre)"
       )
       .eq("tipo", "salida") // el gasto real es lo que sale a las unidades
       .gte("fecha", fechaInicio)
@@ -65,7 +66,7 @@ export default function ReportesCombustiblePage() {
     for (const r of registros) {
       const litros = Number(r.litros ?? 0);
       const campo = r.campos?.nombre ?? "Sin campo";
-      const unidad = r.vehiculos?.nombre ?? "Sin unidad";
+      const unidad = r.catalogo_unidades?.nombre ?? "Sin unidad";
       const chofer = r.empleados ? `${r.empleados.clave} — ${r.empleados.nombre}` : "Sin chofer";
 
       campoMap.set(campo, (campoMap.get(campo) ?? 0) + litros);

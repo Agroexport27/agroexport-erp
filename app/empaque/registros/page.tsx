@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelInventarioMateriales } from "@/lib/excel/inventarioMateriales";
 import { generarPdfInventarioMateriales } from "@/lib/pdf/inventarioMateriales";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -19,7 +20,7 @@ export default function MovimientosHistorialMaterialesPage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [materialId, setMaterialId] = useState("");
   const [tipo, setTipo] = useState<"" | "entrada" | "salida">("");

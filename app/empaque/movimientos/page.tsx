@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -15,7 +16,7 @@ export default function MovimientosMaterialesPage() {
   const [error, setError] = useState<string | null>(null);
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
 
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [tipo, setTipo] = useState<"entrada" | "salida">("entrada");
   const [materialTexto, setMaterialTexto] = useState("");

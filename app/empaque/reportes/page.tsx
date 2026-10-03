@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 export default function ReportesMaterialesPage() {
   const supabase = createClient();
@@ -12,7 +13,7 @@ export default function ReportesMaterialesPage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
 
   async function consultar() {
     setLoading(true);

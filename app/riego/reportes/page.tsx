@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { generarExcelReporteRiego } from "@/lib/excel/reporteRiego";
 import { generarPdfReporteRiego } from "@/lib/pdf/reporteRiego";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string; grupo?: string };
 
@@ -27,7 +28,7 @@ export default function ReportesRiegoPage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [cuadroIds, setCuadroIds] = useState<string[]>([]);
   const [cicloId, setCicloId] = useState("");

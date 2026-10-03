@@ -7,6 +7,7 @@ import { generarPdfEmbarques } from "@/lib/pdf/embarques";
 import { EMPAQUE_OPCIONES } from "@/lib/embarquesConfig";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -43,7 +44,7 @@ export default function RegistrosEmbarquesPage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [distribuidorId, setDistribuidorId] = useState("");
   const [cultivoId, setCultivoId] = useState("");

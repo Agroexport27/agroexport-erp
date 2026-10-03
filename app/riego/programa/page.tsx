@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarPdfRiego } from "@/lib/pdf/riego";
 import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string; grupo?: string };
 type Producto = { id: string; nombre: string; unidad: string };
@@ -42,7 +43,7 @@ export default function ProgramaRiegoPage() {
   const [error, setError] = useState<string | null>(null);
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
 
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [cuadroIds, setCuadroIds] = useState<string[]>([]);
   const [horaInicio, setHoraInicio] = useState("");
@@ -286,35 +287,6 @@ export default function ProgramaRiegoPage() {
     setTimeout(() => setMensajeExito(null), 5000);
   }
 
-  async function eliminarSesion(sesion: any) {
-    if (
-      !confirm(
-        `¿Eliminar este riego completo (${sesion.cuadros.length} cuadro(s))? Si tenía fertirriego, también se revierte del inventario. No se puede deshacer.`
-      )
-    )
-      return;
-
-    if (sesion.sesionId) {
-      await supabase.from("movimientos_inventario_agroquimicos").delete().eq("origen_id", sesion.sesionId);
-      await supabase.from("aplicaciones").delete().eq("origen_id", sesion.sesionId);
-      await supabase.from("riego_diario").delete().eq("sesion_id", sesion.sesionId);
-    } else {
-      // Riegos viejos sin sesion_id: borra por fecha+campo+observaciones
-      const { data } = await supabase
-        .from("riego_diario")
-        .select("id, cuadros(campos(nombre))")
-        .eq("fecha", sesion.fecha)
-        .eq("observaciones", sesion.observaciones);
-      const ids = (data ?? [])
-        .filter((r: any) => r.cuadros?.campos?.nombre === sesion.campo)
-        .map((r: any) => r.id);
-      if (ids.length > 0) {
-        await supabase.from("riego_diario").delete().in("id", ids);
-      }
-    }
-    cargarRecientes();
-  }
-
   function descargarPdfSesion(sesion: any) {
     const productosPdf = sesion.productos.map((p: any) => ({
       nombre: p.nombre,
@@ -496,9 +468,6 @@ export default function ProgramaRiegoPage() {
             <span onClick={(e) => e.preventDefault()}>
               <button className="btn-secondary" onClick={() => descargarPdfSesion(s)}>
                 Descargar PDF
-              </button>
-              <button className="btn-danger ml-2" onClick={() => eliminarSesion(s)}>
-                Eliminar
               </button>
             </span>
           </summary>

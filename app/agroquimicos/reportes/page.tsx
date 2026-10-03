@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelReporteAgroquimicos } from "@/lib/excel/reporteAgroquimicos";
 import { generarPdfReporteAgroquimicos } from "@/lib/pdf/reporteAgroquimicos";
-import MultiSelectCuadros from "@/components/MultiSelectCuadros";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -21,10 +21,10 @@ export default function ReportesAgroquimicosPage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [tipo, setTipo] = useState<"" | "foliar" | "fertirriego">("");
-  const [productoIds, setProductoIds] = useState<string[]>([]);
+  const [productoId, setProductoId] = useState("");
 
   useEffect(() => {
     supabase
@@ -67,7 +67,7 @@ export default function ReportesAgroquimicosPage() {
       .lte("fecha", fechaFin);
 
     if (tipo) query = query.eq("tipo", tipo);
-    if (productoIds.length > 0) query = query.in("producto_id", productoIds);
+    if (productoId) query = query.eq("producto_id", productoId);
 
     const { data, error } = await query.limit(5000);
     let filtrados = (data ?? []) as any[];
@@ -106,26 +106,22 @@ export default function ReportesAgroquimicosPage() {
       campoMap.set(nombreCampo, campo);
     }
 
-    return Array.from(campoMap.values()).map((c) => {
-      const cuadros = Array.from(c.cuadros.values())
+    return Array.from(campoMap.values()).map((c) => ({
+      nombre: c.nombre,
+      cuadros: Array.from(c.cuadros.values())
         .map((q) => ({
           nombre: q.nombre,
           hectareas: q.hectareas,
           productos: Array.from(q.productos.values()).sort((a, b) => b.cantidad - a.cantidad),
           total: Array.from(q.productos.values()).reduce((s, p) => s + p.cantidad, 0),
         }))
-        .sort((a, b) => b.total - a.total);
-      return {
-        nombre: c.nombre,
-        cuadros,
-        hectareasTotal: cuadros.reduce((s, q) => s + q.hectareas, 0),
-      };
-    });
+        .sort((a, b) => b.total - a.total),
+    }));
   }, [registros]);
 
   // Jerarquia 2: Campo -> Producto -> Cuadro
   const jerarquiaProductoCuadro = useMemo(() => {
-    type NodoCuadro = { nombre: string; hectareas: number; cantidad: number; unidad: string };
+    type NodoCuadro = { nombre: string; cantidad: number; unidad: string };
     type NodoProducto = { nombre: string; cuadros: Map<string, NodoCuadro> };
     type NodoCampo = { nombre: string; productos: Map<string, NodoProducto> };
 
@@ -135,11 +131,10 @@ export default function ReportesAgroquimicosPage() {
       const nombreCuadro = r.cuadros?.nombre ?? "Sin cuadro";
       const nombreProducto = r.catalogo_productos?.nombre ?? "Sin producto";
       const cantidad = Number(r.cantidad ?? 0);
-      const hectareas = Number(r.cuadros?.hectareas ?? 0);
 
       const campo = campoMap.get(nombreCampo) ?? { nombre: nombreCampo, productos: new Map() };
       const producto = campo.productos.get(nombreProducto) ?? { nombre: nombreProducto, cuadros: new Map() };
-      const cuadro = producto.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, hectareas, cantidad: 0, unidad: r.unidad };
+      const cuadro = producto.cuadros.get(nombreCuadro) ?? { nombre: nombreCuadro, cantidad: 0, unidad: r.unidad };
       cuadro.cantidad += cantidad;
       producto.cuadros.set(nombreCuadro, cuadro);
       campo.productos.set(nombreProducto, producto);
@@ -269,12 +264,12 @@ export default function ReportesAgroquimicosPage() {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Producto</label>
-          <MultiSelectCuadros
-            opciones={productosOpciones}
-            seleccionados={productoIds}
-            onChange={setProductoIds}
-            placeholder="Buscar producto..."
-          />
+          <select className="input" value={productoId} onChange={(e) => setProductoId(e.target.value)}>
+            <option value="">Todos</option>
+            {productosOpciones.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
         </div>
         <div className="flex flex-wrap gap-2 sm:col-span-2 md:col-span-6">
           <button className="btn-primary" onClick={consultar} disabled={loading}>
@@ -328,9 +323,6 @@ export default function ReportesAgroquimicosPage() {
         <details key={campo.nombre} className="card mb-2 overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center justify-between bg-campo-100 px-4 py-2">
             <span className="text-sm font-semibold text-campo-900">{campo.nombre}</span>
-            <span className="text-xs text-campo-600">
-              {campo.hectareasTotal > 0 ? `${campo.hectareasTotal.toFixed(1)} ha` : ""}
-            </span>
           </summary>
           <div className="px-3 py-2">
             {campo.cuadros.map((cuadro) => (
@@ -391,20 +383,14 @@ export default function ReportesAgroquimicosPage() {
                   <thead className="text-left text-xs font-medium text-campo-500">
                     <tr>
                       <th className="px-4 py-1">Cuadro</th>
-                      <th className="px-4 py-1">Hectáreas</th>
                       <th className="px-4 py-1">Cantidad</th>
-                      <th className="px-4 py-1">Cantidad/ha</th>
                     </tr>
                   </thead>
                   <tbody>
                     {producto.cuadros.map((c) => (
                       <tr key={c.nombre} className="border-t border-campo-50">
                         <td className="px-4 py-1 text-campo-800">{c.nombre}</td>
-                        <td className="px-4 py-1 text-campo-800">{c.hectareas > 0 ? `${c.hectareas} ha` : "—"}</td>
                         <td className="px-4 py-1 text-campo-800">{c.cantidad.toFixed(2)} {c.unidad}</td>
-                        <td className="px-4 py-1 text-campo-800">
-                          {c.hectareas > 0 ? `${(c.cantidad / c.hectareas).toFixed(2)} ${c.unidad}/ha` : "—"}
-                        </td>
                       </tr>
                     ))}
                   </tbody>

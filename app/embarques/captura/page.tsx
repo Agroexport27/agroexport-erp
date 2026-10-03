@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { CONFIG_EMBARQUES, EMPAQUE_OPCIONES } from "@/lib/embarquesConfig";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -21,7 +22,7 @@ export default function EmbarquesPage() {
   const [cultivoId, setCultivoId] = useState("");
   const [calibres, setCalibres] = useState<{ id: string; nombre: string }[]>([]);
 
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [fecha, setFecha] = useState(fechaLocalHoy());
   const [manifiesto, setManifiesto] = useState("");
   const [cajaTransporte, setCajaTransporte] = useState("");
   const [placas, setPlacas] = useState("");
@@ -64,6 +65,7 @@ export default function EmbarquesPage() {
     supabase
       .from("cultivos")
       .select("id, nombre")
+      .eq("activo", true)
       .neq("nombre", "Solarizado")
       .order("nombre")
       .then(({ data }) => {

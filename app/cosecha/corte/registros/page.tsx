@@ -6,6 +6,7 @@ import { generarExcelCorte } from "@/lib/excel/corte";
 import { generarPdfCorte } from "@/lib/pdf/corte";
 import { generarExcelResumenCorte } from "@/lib/excel/resumenCorte";
 import { generarPdfResumenCorte, generarPdfResumenCorteUnDistribuidor } from "@/lib/pdf/resumenCorte";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -24,7 +25,7 @@ export default function RegistrosCortePage() {
   const [fechaInicio, setFechaInicio] = useState(
     new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().slice(0, 10)
   );
-  const [fechaFin, setFechaFin] = useState(new Date().toISOString().slice(0, 10));
+  const [fechaFin, setFechaFin] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
   const [distribuidorId, setDistribuidorId] = useState("");
 

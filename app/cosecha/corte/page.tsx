@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 type Calibre = {
@@ -39,8 +40,8 @@ export default function CorteDiarioPage() {
   const [calibres, setCalibres] = useState<Calibre[]>([]);
   const [overrides, setOverrides] = useState<Record<string, Record<string, number>>>({}); // distribuidorId -> calibreId -> cajasPorPallet
 
-  const [fecha, setFecha] = useState(new Date().toISOString().slice(0, 10));
-  const [clasificacion, setClasificacion] = useState<"Convencional" | "Orgánico">("Convencional");
+  const [fecha, setFecha] = useState(fechaLocalHoy());
+  const [clasificacion, setClasificacion] = useState<"Convencional" | "Orgánico" | "Amarilla">("Convencional");
   const [renglonesPorDist, setRenglonesPorDist] = useState<Record<string, Renglon[]>>({});
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export default function CorteDiarioPage() {
     supabase
       .from("cultivos")
       .select("id, nombre")
+      .eq("activo", true)
       .order("nombre")
       .then(({ data }) => {
         const opciones = (data ?? [])
@@ -415,6 +417,7 @@ export default function CorteDiarioPage() {
           <select className="input" value={clasificacion} onChange={(e) => setClasificacion(e.target.value as any)}>
             <option value="Convencional">Convencional</option>
             <option value="Orgánico">Orgánico</option>
+            <option value="Amarilla">Amarilla (Tropical Honey)</option>
           </select>
         </div>
         <div className="flex items-end">

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarPdfPlanSemanal } from "@/lib/pdf/planSemanal";
+import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
 
@@ -40,7 +41,7 @@ export default function PlanSemanalPage() {
   const [actividadId, setActividadId] = useState("");
   const [campoId, setCampoId] = useState("");
   const [campos, setCampos] = useState<Opcion[]>([]);
-  const [semanaInicio, setSemanaInicio] = useState(lunesDeLaSemana(new Date().toISOString().slice(0, 10)));
+  const [semanaInicio, setSemanaInicio] = useState(lunesDeLaSemana(fechaLocalHoy()));
 
   const [cuadrosPrograma, setCuadrosPrograma] = useState<CuadroPrograma[]>([]);
   const [registrosReales, setRegistrosReales] = useState<any[]>([]);
