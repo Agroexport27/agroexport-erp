@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { generarExcelReporteNominas, FilaResumen } from "@/lib/excel/reporteNominas";
+import { generarExcelReporteNominas, FilaResumen, FilaJerarquia } from "@/lib/excel/reporteNominas";
 import { generarPdfReporteNominas } from "@/lib/pdf/reporteNominas";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
 
@@ -113,7 +113,7 @@ export default function ReportesNominasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { porCampo, porCuadro, porActividad, porCuadroActividad, jerarquia, jerarquiaPorActividad, granTotal } = useMemo(() => {
+  const { porCampo, porCuadro, porActividad, porCuadroActividad, jerarquia, jerarquiaPorActividad, jerarquiaExcel, granTotal } = useMemo(() => {
     const campoMap = new Map<string, FilaResumen>();
     const cuadroMap = new Map<string, FilaResumen>();
     const actividadMap = new Map<string, FilaResumen>();
@@ -265,6 +265,23 @@ export default function ReportesNominasPage() {
       }))
       .sort((a, b) => b.total - a.total);
 
+    // Versión plana de la jerarquía (una fila por campo-cuadro-actividad)
+    // para la hoja "Campo-Cuadro-Actividad" del Excel. Se deriva de la
+    // misma jerarquia anidada para no duplicar el cálculo.
+    const jerarquiaExcel: FilaJerarquia[] = jerarquia.flatMap((campo) =>
+      campo.cuadros.flatMap((cuadro) =>
+        cuadro.actividades.map((actividad) => ({
+          campo: campo.nombre,
+          hectareasCampo: campo.hectareas,
+          cuadro: cuadro.nombre,
+          hectareasCuadro: cuadro.hectareas,
+          actividad: actividad.nombre,
+          registros: actividad.registros,
+          gasto: actividad.total,
+        }))
+      )
+    );
+
     return {
       porCampo: Array.from(campoMap.values()).sort(orden),
       porCuadro: Array.from(cuadroMap.values()).sort(orden),
@@ -272,6 +289,7 @@ export default function ReportesNominasPage() {
       porCuadroActividad: Array.from(cruceMap.values()).sort((a, b) => b.total - a.total),
       jerarquia,
       jerarquiaPorActividad,
+      jerarquiaExcel,
       granTotal,
     };
   }, [registros, hectareasPorCampo]);
@@ -282,6 +300,7 @@ export default function ReportesNominasPage() {
       porCuadro,
       porActividad,
       porCuadroActividad,
+      jerarquia: jerarquiaExcel,
       rango: `${fechaInicio}_a_${fechaFin}`,
     });
   }
