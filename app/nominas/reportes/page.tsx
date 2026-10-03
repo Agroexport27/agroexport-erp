@@ -58,53 +58,24 @@ export default function ReportesNominasPage() {
     setError(null);
 
     // Supabase/PostgREST corta cualquier consulta sin límite explícito en
-    // 1000 filas. Si no paginamos, un periodo con muchos registros (varios
-    // campos, varios días) se trunca y el total sale de menos que la suma
-    // real campo por campo. Por eso traemos todo en páginas de 1000 hasta
-    // que una página regrese menos de 1000 (ahí ya no hay más).
-    //
-    // IMPORTANTE: .range() necesita un .order() explícito. Sin orden fijo,
-    // Postgres no garantiza que la página 2 empiece justo donde terminó la
-    // página 1 -- puede reordenar entre una petición y otra y saltarse
-    // bloques completos de filas, lo que hacía que el total sin filtrar
-    // (que sí necesita varias páginas) saliera más chico que cualquier
-    // campo individual (que cabe en una sola página y nunca repaginaba).
-    const TAMANO_PAGINA = 1000;
-    let desde = 0;
-    let todos: any[] = [];
-    let huboError = false;
+    // 1000 filas. Igual que en el resto de los reportes de este proyecto
+    // (agroquimicos, empaque, combustible...), le ponemos un .limit() alto
+    // para que un periodo con muchos registros no se trunque y el total
+    // salga de menos.
+    let query = supabase
+      .from("apuntador_diario")
+      .select(
+        "id, fecha, total, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
+      )
+      .gte("fecha", fechaInicio)
+      .lte("fecha", fechaFin)
+      .limit(10000);
 
-    while (true) {
-      let query = supabase
-        .from("apuntador_diario")
-        .select(
-          "id, fecha, total, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
-        )
-        .gte("fecha", fechaInicio)
-        .lte("fecha", fechaFin)
-        .order("id", { ascending: true })
-        .range(desde, desde + TAMANO_PAGINA - 1);
+    if (campoId) query = query.eq("campo_id", campoId);
 
-      if (campoId) query = query.eq("campo_id", campoId);
-
-      const { data, error } = await query;
-      if (error) {
-        setError(error.message);
-        huboError = true;
-        break;
-      }
-
-      const pagina = data ?? [];
-      todos = todos.concat(pagina);
-
-      if (pagina.length < TAMANO_PAGINA) break;
-      desde += TAMANO_PAGINA;
-    }
-
-    // Si alguna página falló a medias, no mostramos un total incompleto
-    // sin avisar: mejor dejar los registros anteriores que un total que se
-    // ve normal pero está truncado.
-    if (!huboError) setRegistros(todos);
+    const { data, error } = await query;
+    if (error) setError(error.message);
+    else setRegistros(data ?? []);
     setLoading(false);
   }
 
