@@ -56,19 +56,55 @@ export default function ReportesNominasPage() {
   async function consultar() {
     setLoading(true);
     setError(null);
-    let query = supabase
-      .from("apuntador_diario")
-      .select(
-        "id, fecha, total, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
-      )
-      .gte("fecha", fechaInicio)
-      .lte("fecha", fechaFin);
 
-    if (campoId) query = query.eq("campo_id", campoId);
+    // Supabase/PostgREST corta cualquier consulta sin límite explícito en
+    // 1000 filas. Si no paginamos, un periodo con muchos registros (varios
+    // campos, varios días) se trunca y el total sale de menos que la suma
+    // real campo por campo. Por eso traemos todo en páginas de 1000 hasta
+    // que una página regrese menos de 1000 (ahí ya no hay más).
+    //
+    // IMPORTANTE: .range() necesita un .order() explícito. Sin orden fijo,
+    // Postgres no garantiza que la página 2 empiece justo donde terminó la
+    // página 1 -- puede reordenar entre una petición y otra y saltarse
+    // bloques completos de filas, lo que hacía que el total sin filtrar
+    // (que sí necesita varias páginas) saliera más chico que cualquier
+    // campo individual (que cabe en una sola página y nunca repaginaba).
+    const TAMANO_PAGINA = 1000;
+    let desde = 0;
+    let todos: any[] = [];
+    let huboError = false;
 
-    const { data, error } = await query;
-    if (error) setError(error.message);
-    else setRegistros(data ?? []);
+    while (true) {
+      let query = supabase
+        .from("apuntador_diario")
+        .select(
+          "id, fecha, total, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
+        )
+        .gte("fecha", fechaInicio)
+        .lte("fecha", fechaFin)
+        .order("id", { ascending: true })
+        .range(desde, desde + TAMANO_PAGINA - 1);
+
+      if (campoId) query = query.eq("campo_id", campoId);
+
+      const { data, error } = await query;
+      if (error) {
+        setError(error.message);
+        huboError = true;
+        break;
+      }
+
+      const pagina = data ?? [];
+      todos = todos.concat(pagina);
+
+      if (pagina.length < TAMANO_PAGINA) break;
+      desde += TAMANO_PAGINA;
+    }
+
+    // Si alguna página falló a medias, no mostramos un total incompleto
+    // sin avisar: mejor dejar los registros anteriores que un total que se
+    // ve normal pero está truncado.
+    if (!huboError) setRegistros(todos);
     setLoading(false);
   }
 
@@ -77,11 +113,49 @@ export default function ReportesNominasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { porCampo, porCuadro, porActividad, porCuadroActividad, granTotal } = useMemo(() => {
+  const { porCampo, porCuadro, porActividad, porCuadroActividad, jerarquia, jerarquiaPorActividad, granTotal } = useMemo(() => {
     const campoMap = new Map<string, FilaResumen>();
     const cuadroMap = new Map<string, FilaResumen>();
     const actividadMap = new Map<string, FilaResumen>();
     const cruceMap = new Map<string, { cuadro: string; actividad: string; registros: number; total: number }>();
+
+    // Desglose por campo -> cuadro -> actividad (para el PDF)
+    const jerarquiaMap = new Map<
+      string,
+      {
+        nombre: string;
+        hectareas: number | null;
+        total: number;
+        cuadros: Map<
+          string,
+          {
+            nombre: string;
+            hectareas: number | null;
+            total: number;
+            actividades: Map<string, { nombre: string; registros: number; total: number }>;
+          }
+        >;
+      }
+    >();
+
+    // Desglose por campo -> actividad -> cuadro (para el PDF)
+    const jerarquiaActMap = new Map<
+      string,
+      {
+        nombre: string;
+        hectareas: number | null;
+        total: number;
+        actividades: Map<
+          string,
+          {
+            nombre: string;
+            total: number;
+            cuadros: Map<string, { nombre: string; registros: number; total: number; hectareas: number | null }>;
+          }
+        >;
+      }
+    >();
+
     let granTotal = 0;
 
     for (const r of registros) {
@@ -89,22 +163,25 @@ export default function ReportesNominasPage() {
       granTotal += total;
 
       const nombreCampo = r.campos?.nombre ?? "Sin campo";
+      const hectareasCampo = hectareasPorCampo[nombreCampo] ?? null;
+      const nombreCuadro = r.cuadros?.nombre ?? "General";
+      const hectareasCuadro = r.cuadros?.hectareas ?? null;
+      const nombreActividad = r.actividades?.nombre ?? "Sin actividad";
+
       const c =
         campoMap.get(nombreCampo) ??
-        { nombre: nombreCampo, registros: 0, total: 0, hectareas: hectareasPorCampo[nombreCampo] ?? null };
+        { nombre: nombreCampo, registros: 0, total: 0, hectareas: hectareasCampo };
       c.registros++;
       c.total += total;
       campoMap.set(nombreCampo, c);
 
-      const nombreCuadro = r.cuadros?.nombre ?? "General";
       const q =
         cuadroMap.get(nombreCuadro) ??
-        { nombre: nombreCuadro, registros: 0, total: 0, hectareas: r.cuadros?.hectareas ?? null };
+        { nombre: nombreCuadro, registros: 0, total: 0, hectareas: hectareasCuadro };
       q.registros++;
       q.total += total;
       cuadroMap.set(nombreCuadro, q);
 
-      const nombreActividad = r.actividades?.nombre ?? "Sin actividad";
       const a = actividadMap.get(nombreActividad) ?? { nombre: nombreActividad, registros: 0, total: 0 };
       a.registros++;
       a.total += total;
@@ -117,15 +194,84 @@ export default function ReportesNominasPage() {
       x.registros++;
       x.total += total;
       cruceMap.set(claveCruce, x);
+
+      // --- jerarquia: campo -> cuadro -> actividad ---
+      const campoNodo =
+        jerarquiaMap.get(nombreCampo) ??
+        { nombre: nombreCampo, hectareas: hectareasCampo, total: 0, cuadros: new Map() };
+      campoNodo.total += total;
+      const cuadroNodo =
+        campoNodo.cuadros.get(nombreCuadro) ??
+        { nombre: nombreCuadro, hectareas: hectareasCuadro, total: 0, actividades: new Map() };
+      cuadroNodo.total += total;
+      const actividadNodo =
+        cuadroNodo.actividades.get(nombreActividad) ??
+        { nombre: nombreActividad, registros: 0, total: 0 };
+      actividadNodo.registros++;
+      actividadNodo.total += total;
+      cuadroNodo.actividades.set(nombreActividad, actividadNodo);
+      campoNodo.cuadros.set(nombreCuadro, cuadroNodo);
+      jerarquiaMap.set(nombreCampo, campoNodo);
+
+      // --- jerarquiaPorActividad: campo -> actividad -> cuadro ---
+      const campoNodoAct =
+        jerarquiaActMap.get(nombreCampo) ??
+        { nombre: nombreCampo, hectareas: hectareasCampo, total: 0, actividades: new Map() };
+      campoNodoAct.total += total;
+      const actNodo =
+        campoNodoAct.actividades.get(nombreActividad) ??
+        { nombre: nombreActividad, total: 0, cuadros: new Map() };
+      actNodo.total += total;
+      const cuadroNodoAct =
+        actNodo.cuadros.get(nombreCuadro) ??
+        { nombre: nombreCuadro, registros: 0, total: 0, hectareas: hectareasCuadro };
+      cuadroNodoAct.registros++;
+      cuadroNodoAct.total += total;
+      actNodo.cuadros.set(nombreCuadro, cuadroNodoAct);
+      campoNodoAct.actividades.set(nombreActividad, actNodo);
+      jerarquiaActMap.set(nombreCampo, campoNodoAct);
     }
 
     const orden = (a: FilaResumen, b: FilaResumen) => b.total - a.total;
+
+    const jerarquia = Array.from(jerarquiaMap.values())
+      .map((campo) => ({
+        nombre: campo.nombre,
+        hectareas: campo.hectareas,
+        total: campo.total,
+        cuadros: Array.from(campo.cuadros.values())
+          .map((cuadro) => ({
+            nombre: cuadro.nombre,
+            hectareas: cuadro.hectareas,
+            total: cuadro.total,
+            actividades: Array.from(cuadro.actividades.values()).sort((a, b) => b.total - a.total),
+          }))
+          .sort((a, b) => b.total - a.total),
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const jerarquiaPorActividad = Array.from(jerarquiaActMap.values())
+      .map((campo) => ({
+        nombre: campo.nombre,
+        hectareas: campo.hectareas,
+        total: campo.total,
+        actividades: Array.from(campo.actividades.values())
+          .map((act) => ({
+            nombre: act.nombre,
+            total: act.total,
+            cuadros: Array.from(act.cuadros.values()).sort((a, b) => b.total - a.total),
+          }))
+          .sort((a, b) => b.total - a.total),
+      }))
+      .sort((a, b) => b.total - a.total);
 
     return {
       porCampo: Array.from(campoMap.values()).sort(orden),
       porCuadro: Array.from(cuadroMap.values()).sort(orden),
       porActividad: Array.from(actividadMap.values()).sort(orden),
       porCuadroActividad: Array.from(cruceMap.values()).sort((a, b) => b.total - a.total),
+      jerarquia,
+      jerarquiaPorActividad,
       granTotal,
     };
   }, [registros, hectareasPorCampo]);
@@ -145,7 +291,8 @@ export default function ReportesNominasPage() {
       porCampo,
       porCuadro,
       porActividad,
-      porCuadroActividad,
+      jerarquia,
+      jerarquiaPorActividad,
       rango: `${fechaInicio}_a_${fechaFin}`,
       granTotal,
     });
