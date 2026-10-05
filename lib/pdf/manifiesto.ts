@@ -62,6 +62,7 @@ export type LineaManifiesto = {
   cajas: number;
   calibreNombre: string;
   cajasPorPallet: number | null;
+  variedad?: string;
 };
 
 export type TarimaManifiesto = { tipo: string; cantidad: number };
@@ -218,7 +219,8 @@ export function generarPdfManifiesto({
     doc.line(marginX, filaY, marginX + tableW, filaY);
     const caja = CAJA_POR_DISTRIBUIDOR[distribuidor] ?? "CAJA";
     const peso = pesoPorCaja(cultivoNombre, l.calibreNombre);
-    const desc = `${cultivoNombre.toUpperCase()} CALIBRE ${l.calibreNombre} ${caja}, ${peso} LBS`;
+    const nombreLinea = l.variedad ? `${cultivoNombre} ${l.variedad}` : cultivoNombre;
+    const desc = `${nombreLinea.toUpperCase()} CALIBRE ${l.calibreNombre} ${caja}, ${peso} LBS`;
     const desc2 = `ETIQUETA ${distribuidor.toUpperCase()}`;
     doc.setFontSize(8);
     doc.text(String(l.cajas), marginX + colCantidadW / 2, filaY + 4, { align: "center" });

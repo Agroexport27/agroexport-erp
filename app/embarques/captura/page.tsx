@@ -34,6 +34,8 @@ export default function EmbarquesPage() {
   const [empaque, setEmpaque] = useState("Convencional");
 
   const [valoresCajas, setValoresCajas] = useState<Record<string, string>>({});
+  // Cajas de Sandía Mini Amarilla (mismo manifiesto, mismos calibres)
+  const [valoresCajasAmarilla, setValoresCajasAmarilla] = useState<Record<string, string>>({});
   const [valoresBins, setValoresBins] = useState<Record<string, string>>({});
 
   const [recientes, setRecientes] = useState<any[]>([]);
@@ -165,6 +167,11 @@ export default function EmbarquesPage() {
     () => Object.values(valoresCajas).reduce((s, v) => s + (parseFloat(v) || 0), 0),
     [valoresCajas]
   );
+  const totalCajasAmarilla = useMemo(
+    () => Object.values(valoresCajasAmarilla).reduce((s, v) => s + (parseFloat(v) || 0), 0),
+    [valoresCajasAmarilla]
+  );
+  const esSandiaMini = /sand[ií]a mini/i.test(cultivos.find((c) => c.id === cultivoId)?.label ?? "");
   const totalBins = useMemo(
     () => Object.values(valoresBins).reduce((s, v) => s + (parseFloat(v) || 0), 0),
     [valoresBins]
@@ -175,7 +182,7 @@ export default function EmbarquesPage() {
       setError("Selecciona campo, cultivo y distribuidor.");
       return;
     }
-    if (totalCajas === 0 && totalBins === 0) {
+    if (totalCajas === 0 && totalCajasAmarilla === 0 && totalBins === 0) {
       setError("No hay ninguna cantidad capturada todavía.");
       return;
     }
@@ -229,6 +236,20 @@ export default function EmbarquesPage() {
         cantidad_bins: 0,
       });
     }
+    if (esSandiaMini) {
+      for (const nombreCal of config.cajas) {
+        const cantidad = parseFloat(valoresCajasAmarilla[nombreCal] || "0");
+        if (cantidad <= 0) continue;
+        const calibreId = calibres.find((c) => c.nombre === nombreCal)?.id;
+        detalle.push({
+          remision_id: remision.id,
+          calibre_id: calibreId ?? null,
+          etiqueta_libre: "Amarilla",
+          cantidad_cajas: cantidad,
+          cantidad_bins: 0,
+        });
+      }
+    }
     for (const bin of config.bins) {
       const cantidad = parseFloat(valoresBins[bin.etiqueta] || "0");
       if (cantidad <= 0) continue;
@@ -280,7 +301,7 @@ export default function EmbarquesPage() {
 
     setGuardando(false);
     setMensajeExito(
-      `Remisión guardada: ${totalCajas.toFixed(0)} cajas${totalBins > 0 ? `, ${totalBins.toFixed(0)} bins` : ""}.`
+      `Remisión guardada: ${(totalCajas + totalCajasAmarilla).toFixed(0)} cajas${totalBins > 0 ? `, ${totalBins.toFixed(0)} bins` : ""}.`
     );
     setManifiesto("");
     setCajaTransporte("");
@@ -292,6 +313,7 @@ export default function EmbarquesPage() {
     setCantidadTarimas2("");
     setCuadroIds([]);
     setValoresCajas({});
+    setValoresCajasAmarilla({});
     setValoresBins({});
     cargarRecientes();
     setTimeout(() => setMensajeExito(null), 5000);
@@ -428,7 +450,7 @@ export default function EmbarquesPage() {
           <div>
             <span className="text-xs text-campo-500">Total:</span>{" "}
             <span className="font-semibold">
-              {totalCajas.toFixed(0)} cajas{totalBins > 0 ? `, ${totalBins.toFixed(0)} bins` : ""}
+              {(totalCajas + totalCajasAmarilla).toFixed(0)} cajas{totalBins > 0 ? `, ${totalBins.toFixed(0)} bins` : ""}
             </span>
           </div>
         </div>
@@ -436,7 +458,9 @@ export default function EmbarquesPage() {
 
       {config && (
         <div className="card mb-6 p-4">
-          <p className="mb-2 text-xs font-medium text-campo-600">Cajas por calibre</p>
+          <p className="mb-2 text-xs font-medium text-campo-600">
+            {esSandiaMini ? "Cajas por calibre — Sandía Mini" : "Cajas por calibre"}
+          </p>
           <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-7">
             {config.cajas.map((nombreCal) => (
               <div key={nombreCal}>
@@ -452,6 +476,31 @@ export default function EmbarquesPage() {
               </div>
             ))}
           </div>
+
+          {esSandiaMini && (
+            <>
+              <p className="mb-2 text-xs font-medium text-campo-600">
+                Cajas por calibre — Sandía Mini Amarilla (opcional, mismo manifiesto)
+              </p>
+              <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-7">
+                {config.cajas.map((nombreCal) => (
+                  <div key={nombreCal}>
+                    <label className="mb-1 block text-[11px] text-campo-500">{nombreCal}</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min={0}
+                      className="input"
+                      value={valoresCajasAmarilla[nombreCal] ?? ""}
+                      onChange={(e) =>
+                        setValoresCajasAmarilla({ ...valoresCajasAmarilla, [nombreCal]: e.target.value })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
           {config.bins.length > 0 && (
             <>

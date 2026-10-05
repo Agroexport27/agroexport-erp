@@ -34,7 +34,7 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
   const { data: remision, error } = await supabase
     .from("remision_envio")
     .select(
-      "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, tipo_tarima, cantidad_tarimas, tipo_tarima_2, cantidad_tarimas_2, campos(nombre), cuadros(nombre), distribuidores(nombre, direccion, ciudad), cultivos(nombre), remision_detalle(cantidad_cajas, calibre_id, calibres(nombre, cajas_por_pallet)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
+      "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, tipo_tarima, cantidad_tarimas, tipo_tarima_2, cantidad_tarimas_2, campos(nombre), cuadros(nombre), distribuidores(nombre, direccion, ciudad), cultivos(nombre), remision_detalle(cantidad_cajas, calibre_id, etiqueta_libre, calibres(nombre, cajas_por_pallet)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
     )
     .eq("id", remisionId)
     .single();
@@ -49,6 +49,7 @@ export async function generarManifiestoDeRemision(supabase: any, remisionId: str
     .map((d: any) => ({
       cajas: Number(d.cantidad_cajas),
       calibreNombre: d.calibres?.nombre ?? "",
+      variedad: d.etiqueta_libre ? String(d.etiqueta_libre) : "",
       cajasPorPallet: d.calibres?.cajas_por_pallet != null ? Number(d.calibres.cajas_por_pallet) : null,
     }));
 

@@ -359,7 +359,7 @@ export default function RegistrosEmbarquesPage() {
         distribuidor: r.distribuidores?.nombre ?? "",
         manifiesto: r.manifiesto ?? "",
         empaque: r.empaque ?? "",
-        calibre: d.calibres?.nombre ?? d.etiqueta_libre ?? "",
+        calibre: d.calibres?.nombre ? (d.etiqueta_libre ? `${d.calibres.nombre} ${d.etiqueta_libre}` : d.calibres.nombre) : (d.etiqueta_libre ?? ""),
         cajas: Number(d.cantidad_cajas ?? 0),
         bins: Number(d.cantidad_bins ?? 0),
       }))
@@ -605,7 +605,7 @@ export default function RegistrosEmbarquesPage() {
                               {(r.remision_detalle ?? []).map((d: any) => (
                                 <div key={d.id} className="rounded-md border border-campo-200 bg-white p-2">
                                   <p className="mb-1 text-[11px] text-campo-500">
-                                    {d.calibres?.nombre ?? d.etiqueta_libre ?? "—"}
+                                    {d.calibres?.nombre ? (d.etiqueta_libre ? `${d.calibres.nombre} · ${d.etiqueta_libre}` : d.calibres.nombre) : (d.etiqueta_libre ?? "—")}
                                   </p>
                                   <div className="flex gap-1">
                                     <div className="flex-1">
