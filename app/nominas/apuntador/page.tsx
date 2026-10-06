@@ -6,6 +6,7 @@ import { calcularPeriodo } from "@/lib/utils/periodo";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
+import { traerTodo } from "@/lib/utils/traerTodo";
 
 type Empleado = { id: string; clave: string; nombre: string };
 type Opcion = { id: string; label: string };
@@ -109,7 +110,16 @@ export default function ApuntadorPage() {
     const [{ data: camp }, { data: emp }, { data: act }, { data: cua }] =
       await Promise.all([
         supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-        supabase.from("empleados").select("id, clave, nombre").eq("activo", true).order("clave"),
+        // Paginado: PostgREST corta en 1000 filas y dejaba fuera empleados.
+        traerTodo<Empleado>((desde, hasta) =>
+          supabase
+            .from("empleados")
+            .select("id, clave, nombre")
+            .eq("activo", true)
+            .order("clave")
+            .order("id")
+            .range(desde, hasta)
+        ),
         supabase.from("actividades").select("id, nombre").eq("activo", true).order("nombre"),
         supabase.from("cuadros").select("id, nombre, hectareas, campos(nombre)").order("nombre"),
       ]);
