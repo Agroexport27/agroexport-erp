@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { generarExcelReporteNominas, FilaResumen, FilaJerarquia } from "@/lib/excel/reporteNominas";
 import { generarPdfReporteNominas } from "@/lib/pdf/reporteNominas";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
+import { traerTodo } from "@/lib/utils/traerTodo";
 
 type Opcion = { id: string; label: string };
 
@@ -168,24 +169,27 @@ export default function ReportesNominasPage() {
   async function consultar() {
     setLoading(true);
     setError(null);
-    let query = supabase
-      .from("apuntador_diario")
-      .select(
-        "id, fecha, total, periodo, periodo_anio, tipo_nomina, cultivo_id, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
-      )
-      .gte("fecha", fechaInicio)
-      .lte("fecha", fechaFin)
-      .limit(10000);
-
-    if (campoId) query = query.eq("campo_id", campoId);
-    if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
-    if (actividadId) query = query.eq("actividad_id", actividadId);
-    if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
-    if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
-
-    const { data, error } = await query;
-    if (error) setError(error.message);
-    else setRegistros(data ?? []);
+    // Paginado: el servidor corta cada consulta en 1000 filas, lo que hacia
+    // que el total general no coincidiera con la suma por campo.
+    const { data, error } = await traerTodo((desde, hasta) => {
+      let query = supabase
+        .from("apuntador_diario")
+        .select(
+          "id, fecha, total, periodo, periodo_anio, tipo_nomina, cultivo_id, campos(nombre), cuadros(nombre, hectareas), actividades(nombre)"
+        )
+        .gte("fecha", fechaInicio)
+        .lte("fecha", fechaFin)
+        .order("id", { ascending: true })
+        .range(desde, hasta);
+      if (campoId) query = query.eq("campo_id", campoId);
+      if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
+      if (actividadId) query = query.eq("actividad_id", actividadId);
+      if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
+      if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
+      return query;
+    });
+    if (error) setError(error);
+    else setRegistros(data);
     setLoading(false);
   }
 

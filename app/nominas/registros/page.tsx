@@ -7,6 +7,7 @@ import { generarExcelCensos, FilaCensoResumen } from "@/lib/excel/censoResumen";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
 import { generarPdfRecibosNomina, ReciboEmpleado } from "@/lib/pdf/reciboNomina";
+import { traerTodo } from "@/lib/utils/traerTodo";
 import { fechasDePeriodo, diaAnclaPorTipo } from "@/lib/utils/periodo";
 
 type Opcion = { id: string; label: string };
@@ -291,23 +292,27 @@ function VistaApuntador({
   async function consultar() {
     setLoading(true);
     setError(null);
-    let query = supabase
-      .from("apuntador_diario")
-      .select(
-        "id, fecha, periodo, periodo_anio, tipo_nomina, tipo_pago, avance, tarifa, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
-      )
-      .order("periodo_anio", { ascending: false })
-      .order("periodo", { ascending: false })
-      .order("fecha", { ascending: false });
-
-    if (campoId) query = query.eq("campo_id", campoId);
-    if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
-    if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
-    if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
-
-    const { data, error } = await query.limit(1000);
-    if (error) setError(error.message);
-    else setRegistros(data ?? []);
+    // Paginado: el servidor corta en 1000 filas y se perdian los registros
+    // mas antiguos (julio en adelante).
+    const { data, error } = await traerTodo((desde, hasta) => {
+      let query = supabase
+        .from("apuntador_diario")
+        .select(
+          "id, fecha, periodo, periodo_anio, tipo_nomina, tipo_pago, avance, tarifa, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
+        )
+        .order("periodo_anio", { ascending: false })
+        .order("periodo", { ascending: false })
+        .order("fecha", { ascending: false })
+        .order("id", { ascending: true })
+        .range(desde, hasta);
+      if (campoId) query = query.eq("campo_id", campoId);
+      if (tipoNomina) query = query.eq("tipo_nomina", tipoNomina);
+      if (periodoSemana) query = query.eq("periodo", parseInt(periodoSemana));
+      if (periodoAnio) query = query.eq("periodo_anio", parseInt(periodoAnio));
+      return query;
+    });
+    if (error) setError(error);
+    else setRegistros(data);
     setLoading(false);
   }
 
@@ -406,18 +411,22 @@ function VistaApuntador({
     setGenerandoGeneral(true);
     setError(null);
 
-    const { data, error } = await supabase
-      .from("apuntador_diario")
-      .select(
-        "fecha, periodo, periodo_anio, tipo_nomina, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
-      )
-      .eq("tipo_nomina", tipoNomina || "eventual")
-      .eq("periodo", parseInt(periodoSemana))
-      .eq("periodo_anio", parseInt(periodoAnio));
+    const { data, error } = await traerTodo((desde, hasta) =>
+      supabase
+        .from("apuntador_diario")
+        .select(
+          "id, fecha, periodo, periodo_anio, tipo_nomina, total, hora_entrada, hora_salida, empleados(clave, nombre), cuadros(nombre), actividades(nombre), campos(nombre)"
+        )
+        .eq("tipo_nomina", tipoNomina || "eventual")
+        .eq("periodo", parseInt(periodoSemana))
+        .eq("periodo_anio", parseInt(periodoAnio))
+        .order("id", { ascending: true })
+        .range(desde, hasta)
+    );
 
     setGenerandoGeneral(false);
     if (error) {
-      setError(error.message);
+      setError(error);
       return;
     }
     if (!data || data.length === 0) {
