@@ -57,6 +57,84 @@ function ordenNumerico(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
+
+// ---- Resultados en caché de las fórmulas ----
+// ExcelJS escribe las fórmulas SIN su resultado: Excel las calcula al abrir,
+// pero la Vista Protegida (archivo recién descargado), el visor del celular,
+// Vista previa, etc. no recalculan y muestran las celdas vacías. Aquí
+// evaluamos nosotros las fórmulas (solo usamos SUM, IFERROR, + - * /) y
+// guardamos el resultado junto a la fórmula.
+const EPOCH_MS = Date.UTC(1899, 11, 30);
+
+function celdaNumero(ws: any, addr: string, memo: Map<string, number>): number {
+  if (memo.has(addr)) return memo.get(addr)!;
+  const v = ws.getCell(addr).value;
+  let n = 0;
+  if (v && typeof v === "object" && !(v instanceof Date) && "formula" in v) {
+    memo.set(addr, 0); // evita ciclos
+    n = evaluar(ws, String((v as any).formula), memo);
+  } else if (v instanceof Date) {
+    n = (v.getTime() - EPOCH_MS) / 86400000;
+  } else if (typeof v === "number") {
+    n = v;
+  }
+  memo.set(addr, n);
+  return n;
+}
+
+function rangoCeldas(a: string, b: string): string[] {
+  const pa = /^([A-Z]+)(\d+)$/.exec(a)!;
+  const pb = /^([A-Z]+)(\d+)$/.exec(b)!;
+  const aNum = (l: string) => l.split("").reduce((acc, ch) => acc * 26 + ch.charCodeAt(0) - 64, 0);
+  const c1 = aNum(pa[1]);
+  const c2 = aNum(pb[1]);
+  const out: string[] = [];
+  for (let r = Number(pa[2]); r <= Number(pb[2]); r++) for (let c = c1; c <= c2; c++) out.push(letra(c) + r);
+  return out;
+}
+
+function evaluar(ws: any, formula: string, memo: Map<string, number>): number {
+  let expr = formula
+    .replace(/SUM\(([A-Z]+\d+):([A-Z]+\d+)\)/g, "S('$1|$2')")
+    .replace(/IFERROR\((.*),0\)$/, "IFE(()=>($1))")
+    .replace(/(?<![A-Z'|])([A-Z]{1,3})(\d+)(?![\d'|])/g, "R('$1$2')");
+  const S = (rng: string) => {
+    const [a, b] = rng.split("|");
+    return rangoCeldas(a, b).reduce((acc, ad) => acc + celdaNumero(ws, ad, memo), 0);
+  };
+  const R = (ad: string) => celdaNumero(ws, ad, memo);
+  const IFE = (f: () => number) => {
+    const v = f();
+    return Number.isFinite(v) ? v : 0;
+  };
+  try {
+    const v = new Function("S", "R", "IFE", `return (${expr});`)(S, R, IFE);
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function guardarResultados(libro: any) {
+  libro.eachSheet((ws: any) => {
+    const memo = new Map<string, number>();
+    const pendientes: { cell: any; formula: string }[] = [];
+    ws.eachRow((row: any) =>
+      row.eachCell((cell: any) => {
+        const v = cell.value;
+        if (v && typeof v === "object" && !(v instanceof Date) && "formula" in v) {
+          pendientes.push({ cell, formula: String((v as any).formula) });
+        }
+      })
+    );
+    for (const { cell, formula } of pendientes) {
+      const n = evaluar(ws, formula, memo);
+      const esFecha = typeof cell.numFmt === "string" && /d-mmm/.test(cell.numFmt);
+      cell.value = { formula, result: esFecha ? new Date(EPOCH_MS + n * 86400000) : n };
+    }
+  });
+}
+
 function estilo(
   c: any,
   o: {
@@ -449,6 +527,7 @@ export async function generarExcelAcumuladoSandia({
 
   hojaDistribuidor(libro, registros, camposOrden, cuadrosPlantados, cicloLabel, inicio, dias);
 
+  guardarResultados(libro);
   const buffer = await libro.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
