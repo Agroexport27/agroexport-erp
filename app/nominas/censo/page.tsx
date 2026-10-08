@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarPdfCenso, FilaCensoPdf } from "@/lib/pdf/censo";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Puesto = { id: string; nombre: string; categoria: string };
@@ -12,6 +13,7 @@ type FilaTemporada = { actividadId: string; actividadNombre: string; cantidad: s
 
 const ETIQUETAS_CATEGORIA: Record<string, string> = {
   maquinaria_taller_almacen: "Maquinaria / Taller / Almacén",
+  tractor: "Tractor",
   riego: "Riego",
   jornal: "Jornal",
   operativo: "Operativo",
@@ -43,22 +45,18 @@ export default function CensoPage() {
   ]);
 
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: cua }, { data: pue }, { data: act }] = await Promise.all([
+    const [{ data: camp }, cua, { data: pue }, { data: act }] = await Promise.all([
       supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-      supabase
-        .from("cuadros")
-        .select("id, nombre, campos(nombre)")
-        .order("campo_id")
-        .order("nombre"),
+      obtenerCuadrosPermitidos(supabase),
       supabase.from("catalogo_puestos").select("id, nombre, categoria").eq("activo", true),
       supabase.from("actividades").select("id, nombre").eq("activo", true).order("nombre"),
     ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setCuadros(
-      (cua ?? []).map((c: any) => ({
+      cua.map((c) => ({
         id: c.id,
         label: c.nombre,
-        grupo: c.campos?.nombre ?? "Sin campo",
+        grupo: c.campoNombre,
       }))
     );
     setPuestos(pue ?? []);
@@ -181,7 +179,7 @@ export default function CensoPage() {
     if (errCenso || !censo) {
       setError(
         errCenso?.code === "23505"
-          ? "Ya existe un censo para ese día y campo. Elimínalo abajo en 'Censos recientes' si quieres capturarlo de nuevo."
+          ? "Ya existe un censo para ese día y campo. Elimínalo en Nóminas → Registros → Censos si quieres capturarlo de nuevo."
           : errCenso?.message ?? "No se pudo crear el censo."
       );
       setGuardando(false);
@@ -287,7 +285,7 @@ export default function CensoPage() {
     setTimeout(() => setMensajeExito(null), 4000);
   }
 
-  const categorias = ["maquinaria_taller_almacen", "riego", "jornal", "operativo"];
+  const categorias = ["maquinaria_taller_almacen", "tractor", "riego", "jornal", "operativo"];
 
   return (
     <div>
@@ -307,14 +305,14 @@ export default function CensoPage() {
         </div>
       )}
 
-      <div className="card mb-4 grid grid-cols-3 gap-3 p-4">
+      <div className="card mb-4 grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">
             Fecha
           </label>
           <input
             type="date"
-            className="input"
+            className="input min-w-0"
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
           />
@@ -452,8 +450,8 @@ export default function CensoPage() {
       <h2 className="mb-2 mt-8 text-sm font-semibold text-campo-800">
         Censos recientes
       </h2>
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm">
           <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
             <tr>
               <th className="px-4 py-2">Fecha</th>
@@ -496,18 +494,12 @@ export default function CensoPage() {
                   <td className="px-4 py-2 text-campo-800">{c.campos?.nombre}</td>
                   <td className="px-4 py-2 text-campo-800">{c.folio ?? "—"}</td>
                   <td className="px-4 py-2 text-campo-800">{total}</td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right">
+                  <td className="px-4 py-2 text-right">
                     <button
-                      className="btn-secondary mr-2"
+                      className="btn-secondary"
                       onClick={() => descargarPdfExistente(c.id)}
                     >
                       Descargar PDF
-                    </button>
-                    <button
-                      className="btn-danger"
-                      onClick={() => eliminarCenso(c.id)}
-                    >
-                      Eliminar
                     </button>
                   </td>
                 </tr>

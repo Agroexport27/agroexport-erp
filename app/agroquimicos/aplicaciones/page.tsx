@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
+import { generarPdfAplicacionFoliar } from "@/lib/pdf/aplicacionFoliar";
+import { calcularPeriodo, fechasDePeriodo } from "@/lib/utils/periodo";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string; grupo?: string };
@@ -13,12 +16,11 @@ type LineaProducto = {
   key: string;
   productoId: string;
   productoTexto: string;
-  ingredienteActivo: string;
   dosisHa: string;
   dosisTanque: string;
-  paraControlDe: string;
-  totalUtilizado: string;
-  observaciones: string;
+  totalUsado: string;
+  dosisTanqueManual: boolean;
+  totalUsadoManual: boolean;
 };
 
 function uid() {
@@ -47,14 +49,15 @@ export default function AplicacionesFoliaresPage() {
   const [variedadId, setVariedadId] = useState("");
   const [cuadroIds, setCuadroIds] = useState<string[]>([]);
   const [fechaAplicacion, setFechaAplicacion] = useState(fechaLocalHoy());
-  const [fechaReingreso, setFechaReingreso] = useState("");
   const [tripleLavado, setTripleLavado] = useState(true);
   const [operador, setOperador] = useState("");
   const [noTractor, setNoTractor] = useState("");
   const [noAspersora, setNoAspersora] = useState("");
+  const [tipoAplicacion, setTipoAplicacion] = useState<"aspersora" | "dron">("aspersora");
   const [ltsPorTanque, setLtsPorTanque] = useState("");
   const [hasPorTanque, setHasPorTanque] = useState("");
   const [noCargas, setNoCargas] = useState("");
+  const [noCargasManual, setNoCargasManual] = useState(false);
   const [seCalibro, setSeCalibro] = useState(true);
   const [horaInicio, setHoraInicio] = useState("");
   const [horaTermino, setHoraTermino] = useState("");
@@ -66,20 +69,19 @@ export default function AplicacionesFoliaresPage() {
       key: uid(),
       productoId: "",
       productoTexto: "",
-      ingredienteActivo: "",
       dosisHa: "",
       dosisTanque: "",
-      paraControlDe: "",
-      totalUtilizado: "",
-      observaciones: "",
+      totalUsado: "",
+      dosisTanqueManual: false,
+      totalUsadoManual: false,
     },
   ]);
 
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: cua }, { data: cult }, { data: vars }, { data: prod }, { data: cic }] =
+    const [{ data: camp }, cua, { data: cult }, { data: vars }, { data: prod }, { data: cic }] =
       await Promise.all([
         supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-        supabase.from("cuadros").select("id, nombre, hectareas, campos(nombre)").order("nombre"),
+        obtenerCuadrosPermitidos(supabase),
         supabase.from("cultivos").select("id, nombre").eq("activo", true).order("nombre"),
         supabase.from("variedades").select("id, nombre, cultivo_id").eq("activo", true).order("nombre"),
         supabase.from("catalogo_productos").select("id, nombre, unidad").eq("activo", true).order("nombre"),
@@ -87,11 +89,11 @@ export default function AplicacionesFoliaresPage() {
       ]);
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setCuadrosTodos(
-      (cua ?? []).map((c: any) => ({
+      cua.map((c) => ({
         id: c.id,
         label: c.nombre,
-        grupo: c.campos?.nombre ?? "Sin campo",
-        hectareas: Number(c.hectareas ?? 0),
+        grupo: c.campoNombre,
+        hectareas: c.hectareas,
       }))
     );
     setCultivos((cult ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
@@ -102,11 +104,14 @@ export default function AplicacionesFoliaresPage() {
 
   async function cargarRecientes() {
     setLoading(true);
+    const { semana, anio } = calcularPeriodo(fechaLocalHoy());
+    const dias = fechasDePeriodo(semana, anio);
     const { data, error } = await supabase
       .from("aplicacion_foliar")
       .select("id, folio, fecha_aplicacion, campos(nombre), aplicacion_foliar_cuadro(cuadros(nombre)), aplicacion_foliar_producto(total_utilizado, catalogo_productos(nombre))")
-      .order("fecha_aplicacion", { ascending: false })
-      .limit(30);
+      .gte("fecha_aplicacion", dias[0].fecha)
+      .lte("fecha_aplicacion", dias[6].fecha)
+      .order("fecha_aplicacion", { ascending: false });
     if (error) setError(error.message);
     else setRecientes(data ?? []);
     setLoading(false);
@@ -135,6 +140,38 @@ export default function AplicacionesFoliaresPage() {
     }, 0);
   }, [cuadroIds, cuadrosTodos]);
 
+  // No. de cargas = superficie / rendimiento por carga (has/tanque),
+  // redondeado hacia arriba. Se recalcula solo si no lo tocaste a mano.
+  useEffect(() => {
+    if (noCargasManual) return;
+    const rendimiento = parseFloat(hasPorTanque);
+    if (superficieTotal > 0 && rendimiento > 0) {
+      setNoCargas(String(Math.ceil(superficieTotal / rendimiento)));
+    }
+  }, [superficieTotal, hasPorTanque, noCargasManual]);
+
+  // Dosis/tanque y Total usado de cada producto, recalculados cuando
+  // cambian has/tanque o no. de cargas (a menos que edites el campo a mano).
+  useEffect(() => {
+    setLineas((prev) =>
+      prev.map((l) => {
+        let siguiente = { ...l };
+        const dosisHa = parseFloat(l.dosisHa);
+        const rendimiento = parseFloat(hasPorTanque);
+        if (!l.dosisTanqueManual && dosisHa > 0 && rendimiento > 0) {
+          siguiente.dosisTanque = (dosisHa * rendimiento).toFixed(2);
+        }
+        const dosisTanque = parseFloat(siguiente.dosisTanque);
+        const cargas = parseFloat(noCargas);
+        if (!l.totalUsadoManual && dosisTanque > 0 && cargas > 0) {
+          siguiente.totalUsado = (dosisTanque * cargas).toFixed(2);
+        }
+        return siguiente;
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPorTanque, noCargas]);
+
   function agregarLinea() {
     setLineas((l) => [
       ...l,
@@ -142,12 +179,11 @@ export default function AplicacionesFoliaresPage() {
         key: uid(),
         productoId: "",
         productoTexto: "",
-        ingredienteActivo: "",
         dosisHa: "",
         dosisTanque: "",
-        paraControlDe: "",
-        totalUtilizado: "",
-        observaciones: "",
+        totalUsado: "",
+        dosisTanqueManual: false,
+        totalUsadoManual: false,
       },
     ]);
   }
@@ -170,7 +206,7 @@ export default function AplicacionesFoliaresPage() {
       setError("Selecciona el campo y al menos un cuadro.");
       return;
     }
-    const lineasValidas = lineas.filter((l) => l.productoId && l.totalUtilizado);
+    const lineasValidas = lineas.filter((l) => l.productoId && l.totalUsado);
     if (lineasValidas.length === 0) {
       setError("Agrega al menos un producto con total utilizado.");
       return;
@@ -199,11 +235,11 @@ export default function AplicacionesFoliaresPage() {
         variedad_id: variedadId || null,
         superficie_has: superficieTotal,
         fecha_aplicacion: fechaAplicacion,
-        fecha_reingreso: fechaReingreso || null,
         triple_lavado: tripleLavado,
         operador: operador || null,
         no_tractor: noTractor || null,
         no_aspersora: noAspersora || null,
+        tipo_aplicacion: tipoAplicacion,
         lts_por_tanque: ltsPorTanque ? parseFloat(ltsPorTanque) : null,
         has_por_tanque: hasPorTanque ? parseFloat(hasPorTanque) : null,
         no_cargas: noCargas ? parseInt(noCargas) : null,
@@ -235,12 +271,9 @@ export default function AplicacionesFoliaresPage() {
     const filasProducto = lineasValidas.map((l) => ({
       aplicacion_foliar_id: aplicacionFoliarId,
       producto_id: l.productoId,
-      ingrediente_activo: l.ingredienteActivo || null,
       dosis_ha: l.dosisHa ? parseFloat(l.dosisHa) : null,
       dosis_tanque: l.dosisTanque ? parseFloat(l.dosisTanque) : null,
-      para_control_de: l.paraControlDe || null,
-      total_utilizado: parseFloat(l.totalUtilizado),
-      observaciones: l.observaciones || null,
+      total_utilizado: parseFloat(l.totalUsado),
     }));
     await supabase.from("aplicacion_foliar_producto").insert(filasProducto);
 
@@ -248,7 +281,7 @@ export default function AplicacionesFoliaresPage() {
     // y llena la tabla unificada `aplicaciones` para acumulados.
     const filasAplicaciones: any[] = [];
     for (const l of lineasValidas) {
-      const total = parseFloat(l.totalUtilizado);
+      const total = parseFloat(l.totalUsado);
       for (const cuadroId of cuadroIds) {
         const c = cuadrosTodos.find((c) => c.id === cuadroId)!;
         const proporcion = superficieTotal > 0 ? c.hectareas / superficieTotal : 1 / cuadroIds.length;
@@ -260,7 +293,7 @@ export default function AplicacionesFoliaresPage() {
           cantidad: total * proporcion,
           unidad: productos.find((p) => p.id === l.productoId)?.unidad ?? "LT",
           tipo: "foliar",
-          metodo: noAspersora ? `Aspersora ${noAspersora}` : "Aspersión",
+          metodo: tipoAplicacion === "dron" ? `Dron ${noAspersora}`.trim() : `Aspersora ${noAspersora}`.trim(),
           origen_tipo: "aplicacion_foliar_producto",
           origen_id: aplicacionFoliarId,
         });
@@ -275,7 +308,7 @@ export default function AplicacionesFoliaresPage() {
       campo_id: campoId,
       fecha: fechaAplicacion,
       tipo: "salida",
-      cantidad: parseFloat(l.totalUtilizado),
+      cantidad: parseFloat(l.totalUsado),
       observaciones: "Aplicación foliar",
       origen_tipo: "aplicacion_foliar",
       origen_id: aplicacionFoliarId,
@@ -290,27 +323,118 @@ export default function AplicacionesFoliaresPage() {
         "La aplicación se guardó, pero hubo un problema al descontar el inventario: " + errMov.message
       );
     } else {
-      setMensajeExito("Aplicación guardada y descontada del inventario correctamente.");
+      setMensajeExito("Aplicación guardada y descontada del inventario correctamente. Se descargó el PDF.");
     }
+
+    generarPdfAplicacionFoliar({
+      folio,
+      campo: campos.find((c) => c.id === campoId)?.label ?? "",
+      cultivo: cultivos.find((c) => c.id === cultivoId)?.label ?? "",
+      variedad: variedades.find((v) => v.id === variedadId)?.label ?? "",
+      cuadros: cuadroIds.map((id) => cuadrosTodos.find((c) => c.id === id)?.label ?? "").join(", "),
+      superficieHas: superficieTotal,
+      fechaAplicacion,
+      tripleLavado,
+      operador,
+      noTractor,
+      noAspersora,
+      ltsPorTanque,
+      hasPorTanque,
+      noCargas,
+      seCalibroEquipo: seCalibro,
+      horaInicio,
+      horaTermino,
+      gerenteCampo,
+      encargadoAplicaciones,
+      productos: lineasValidas.map((l) => ({
+        producto: productos.find((p) => p.id === l.productoId)?.nombre ?? "",
+        dosisHa: l.dosisHa ? parseFloat(l.dosisHa) : null,
+        dosisTanque: l.dosisTanque ? parseFloat(l.dosisTanque) : null,
+        totalUsado: parseFloat(l.totalUsado),
+        unidad: productos.find((p) => p.id === l.productoId)?.unidad ?? "",
+      })),
+    });
 
     // Reset
     setFolio("");
     setCuadroIds([]);
+    setNoCargasManual(false);
     setLineas([
       {
         key: uid(),
         productoId: "",
         productoTexto: "",
-        ingredienteActivo: "",
         dosisHa: "",
         dosisTanque: "",
-        paraControlDe: "",
-        totalUtilizado: "",
-        observaciones: "",
+        totalUsado: "",
+        dosisTanqueManual: false,
+        totalUsadoManual: false,
       },
     ]);
     cargarRecientes();
     setTimeout(() => setMensajeExito(null), 5000);
+  }
+
+  async function eliminarAplicacion(id: string) {
+    if (
+      !confirm(
+        "¿Eliminar esta aplicación foliar completa? Se revierte del inventario. No se puede deshacer."
+      )
+    )
+      return;
+    await supabase.from("movimientos_inventario_agroquimicos").delete().eq("origen_id", id);
+    await supabase.from("aplicaciones").delete().eq("origen_id", id);
+    const { error } = await supabase.from("aplicacion_foliar").delete().eq("id", id);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    cargarRecientes();
+  }
+
+  async function descargarPdfExistente(id: string) {
+    const { data, error } = await supabase
+      .from("aplicacion_foliar")
+      .select(
+        "folio, campos(nombre), cultivos(nombre), variedades(nombre), superficie_has, fecha_aplicacion, triple_lavado, operador, no_tractor, no_aspersora, lts_por_tanque, has_por_tanque, no_cargas, se_calibro_equipo, hora_inicio, hora_termino, gerente_campo, encargado_aplicaciones, aplicacion_foliar_cuadro(cuadros(nombre)), aplicacion_foliar_producto(dosis_ha, dosis_tanque, total_utilizado, catalogo_productos(nombre, unidad))"
+      )
+      .eq("id", id)
+      .single();
+
+    if (error || !data) {
+      setError(error?.message ?? "No se pudo cargar la aplicación.");
+      return;
+    }
+    const d = data as any;
+
+    generarPdfAplicacionFoliar({
+      folio: d.folio ?? "",
+      campo: d.campos?.nombre ?? "",
+      cultivo: d.cultivos?.nombre ?? "",
+      variedad: d.variedades?.nombre ?? "",
+      cuadros: (d.aplicacion_foliar_cuadro ?? []).map((x: any) => x.cuadros?.nombre).join(", "),
+      superficieHas: Number(d.superficie_has ?? 0),
+      fechaAplicacion: d.fecha_aplicacion,
+      tripleLavado: !!d.triple_lavado,
+      operador: d.operador ?? "",
+      noTractor: d.no_tractor ?? "",
+      noAspersora: d.no_aspersora ?? "",
+      ltsPorTanque: d.lts_por_tanque ? String(d.lts_por_tanque) : "",
+      hasPorTanque: d.has_por_tanque ? String(d.has_por_tanque) : "",
+      noCargas: d.no_cargas ? String(d.no_cargas) : "",
+      seCalibroEquipo: !!d.se_calibro_equipo,
+      horaInicio: d.hora_inicio ?? "",
+      horaTermino: d.hora_termino ?? "",
+      gerenteCampo: d.gerente_campo ?? "",
+      encargadoAplicaciones: d.encargado_aplicaciones ?? "",
+      productos: (d.aplicacion_foliar_producto ?? []).map((p: any) => ({
+        producto: p.catalogo_productos?.nombre ?? "",
+        dosisHa: p.dosis_ha,
+        dosisTanque: p.dosis_tanque,
+        totalUsado: Number(p.total_utilizado),
+        unidad: p.catalogo_productos?.unidad ?? "",
+      })),
+    });
   }
 
   return (
@@ -383,10 +507,6 @@ export default function AplicacionesFoliaresPage() {
           <label className="mb-1 block text-xs font-medium text-campo-600">Fecha de aplicación</label>
           <input type="date" className="input" value={fechaAplicacion} onChange={(e) => setFechaAplicacion(e.target.value)} />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Fecha de reingreso</label>
-          <input type="date" className="input" value={fechaReingreso} onChange={(e) => setFechaReingreso(e.target.value)} />
-        </div>
 
         <div className="flex items-center gap-2 pt-4">
           <input type="checkbox" checked={tripleLavado} onChange={(e) => setTripleLavado(e.target.checked)} />
@@ -399,6 +519,17 @@ export default function AplicacionesFoliaresPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">No. tractor</label>
           <input className="input" value={noTractor} onChange={(e) => setNoTractor(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de aplicación</label>
+          <select
+            className="input"
+            value={tipoAplicacion}
+            onChange={(e) => setTipoAplicacion(e.target.value as "aspersora" | "dron")}
+          >
+            <option value="aspersora">Aspersora</option>
+            <option value="dron">Dron</option>
+          </select>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">No. aspersora</label>
@@ -414,8 +545,27 @@ export default function AplicacionesFoliaresPage() {
           <input type="number" step="any" className="input" value={hasPorTanque} onChange={(e) => setHasPorTanque(e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">No. cargas</label>
-          <input type="number" className="input" value={noCargas} onChange={(e) => setNoCargas(e.target.value)} />
+          <label className="mb-1 block text-xs font-medium text-campo-600">
+            No. cargas {!noCargasManual && noCargas && <span className="text-campo-400">(auto)</span>}
+          </label>
+          <input
+            type="number"
+            className="input"
+            value={noCargas}
+            onChange={(e) => {
+              setNoCargas(e.target.value);
+              setNoCargasManual(true);
+            }}
+          />
+          {noCargasManual && (
+            <button
+              type="button"
+              className="mt-1 text-[11px] text-campo-500 underline"
+              onClick={() => setNoCargasManual(false)}
+            >
+              Volver a calcular automático
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2 pt-4">
           <input type="checkbox" checked={seCalibro} onChange={(e) => setSeCalibro(e.target.checked)} />
@@ -445,12 +595,9 @@ export default function AplicacionesFoliaresPage() {
           <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
             <tr>
               <th className="px-3 py-2">Producto</th>
-              <th className="px-3 py-2">I.A.</th>
               <th className="px-3 py-2">Dosis/ha</th>
               <th className="px-3 py-2">Dosis/tanque</th>
-              <th className="px-3 py-2">Para control de</th>
-              <th className="px-3 py-2">Total utilidad</th>
-              <th className="px-3 py-2">Observaciones</th>
+              <th className="px-3 py-2">Total usado</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
@@ -459,7 +606,7 @@ export default function AplicacionesFoliaresPage() {
               <tr key={l.key} className="border-t border-campo-50">
                 <td className="px-3 py-1">
                   <input
-                    className="input w-40"
+                    className="input w-48"
                     list="productos-datalist-aplic"
                     placeholder="Buscar..."
                     value={l.productoTexto}
@@ -467,22 +614,52 @@ export default function AplicacionesFoliaresPage() {
                   />
                 </td>
                 <td className="px-3 py-1">
-                  <input className="input w-24" value={l.ingredienteActivo} onChange={(e) => actualizarLinea(l.key, { ingredienteActivo: e.target.value })} />
+                  <input
+                    type="number"
+                    step="any"
+                    className="input w-24"
+                    value={l.dosisHa}
+                    onChange={(e) => {
+                      const dosisHa = e.target.value;
+                      const rendimiento = parseFloat(hasPorTanque);
+                      const cambios: Partial<LineaProducto> = { dosisHa };
+                      if (!l.dosisTanqueManual && parseFloat(dosisHa) > 0 && rendimiento > 0) {
+                        const dosisTanque = (parseFloat(dosisHa) * rendimiento).toFixed(2);
+                        cambios.dosisTanque = dosisTanque;
+                        const cargas = parseFloat(noCargas);
+                        if (!l.totalUsadoManual && cargas > 0) {
+                          cambios.totalUsado = (parseFloat(dosisTanque) * cargas).toFixed(2);
+                        }
+                      }
+                      actualizarLinea(l.key, cambios);
+                    }}
+                  />
                 </td>
                 <td className="px-3 py-1">
-                  <input type="number" step="any" className="input w-20" value={l.dosisHa} onChange={(e) => actualizarLinea(l.key, { dosisHa: e.target.value })} />
+                  <input
+                    type="number"
+                    step="any"
+                    className="input w-24"
+                    value={l.dosisTanque}
+                    onChange={(e) => {
+                      const dosisTanque = e.target.value;
+                      const cambios: Partial<LineaProducto> = { dosisTanque, dosisTanqueManual: true };
+                      const cargas = parseFloat(noCargas);
+                      if (!l.totalUsadoManual && parseFloat(dosisTanque) > 0 && cargas > 0) {
+                        cambios.totalUsado = (parseFloat(dosisTanque) * cargas).toFixed(2);
+                      }
+                      actualizarLinea(l.key, cambios);
+                    }}
+                  />
                 </td>
                 <td className="px-3 py-1">
-                  <input type="number" step="any" className="input w-20" value={l.dosisTanque} onChange={(e) => actualizarLinea(l.key, { dosisTanque: e.target.value })} />
-                </td>
-                <td className="px-3 py-1">
-                  <input className="input w-28" value={l.paraControlDe} onChange={(e) => actualizarLinea(l.key, { paraControlDe: e.target.value })} />
-                </td>
-                <td className="px-3 py-1">
-                  <input type="number" step="any" className="input w-24" value={l.totalUtilizado} onChange={(e) => actualizarLinea(l.key, { totalUtilizado: e.target.value })} />
-                </td>
-                <td className="px-3 py-1">
-                  <input className="input w-28" value={l.observaciones} onChange={(e) => actualizarLinea(l.key, { observaciones: e.target.value })} />
+                  <input
+                    type="number"
+                    step="any"
+                    className="input w-28"
+                    value={l.totalUsado}
+                    onChange={(e) => actualizarLinea(l.key, { totalUsado: e.target.value, totalUsadoManual: true })}
+                  />
                 </td>
                 <td className="px-3 py-1">
                   <button className="text-red-500 hover:text-red-700" onClick={() => quitarLinea(l.key)}>×</button>
@@ -500,7 +677,7 @@ export default function AplicacionesFoliaresPage() {
         {guardando ? "Guardando..." : "Guardar aplicación"}
       </button>
 
-      <h2 className="mb-2 text-sm font-semibold text-campo-800">Aplicaciones recientes</h2>
+      <h2 className="mb-2 text-sm font-semibold text-campo-800">Aplicaciones recientes (semana actual)</h2>
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
@@ -510,12 +687,13 @@ export default function AplicacionesFoliaresPage() {
               <th className="px-4 py-2">Campo</th>
               <th className="px-4 py-2">Cuadros</th>
               <th className="px-4 py-2">Productos</th>
+              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={5}>Cargando...</td></tr>}
+            {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={6}>Cargando...</td></tr>}
             {!loading && recientes.length === 0 && (
-              <tr><td className="px-4 py-4 text-campo-400" colSpan={5}>Todavía no hay aplicaciones.</td></tr>
+              <tr><td className="px-4 py-4 text-campo-400" colSpan={6}>Todavía no hay aplicaciones.</td></tr>
             )}
             {recientes.map((r: any) => (
               <tr key={r.id} className="border-t border-campo-50">
@@ -529,6 +707,14 @@ export default function AplicacionesFoliaresPage() {
                   {(r.aplicacion_foliar_producto ?? [])
                     .map((p: any) => `${p.catalogo_productos?.nombre} (${p.total_utilizado})`)
                     .join(", ")}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <button className="btn-secondary mr-2" onClick={() => descargarPdfExistente(r.id)}>
+                    Descargar PDF
+                  </button>
+                  <button className="btn-danger" onClick={() => eliminarAplicacion(r.id)}>
+                    Eliminar
+                  </button>
                 </td>
               </tr>
             ))}
