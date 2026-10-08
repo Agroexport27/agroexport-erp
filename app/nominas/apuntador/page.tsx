@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { calcularPeriodo } from "@/lib/utils/periodo";
+import { calcularPeriodo, diaAnclaPorTipo } from "@/lib/utils/periodo";
 import { generarExcelApuntador, FilaApuntadorExport } from "@/lib/excel/apuntador";
 import { generarPdfApuntador } from "@/lib/pdf/apuntador";
+import BuscadorEmpleado from "@/components/BuscadorEmpleado";
+import { obtenerCuadrosPermitidos } from "@/lib/utils/cuadrosPrograma";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
-import { traerTodo } from "@/lib/utils/traerTodo";
 
-type Empleado = { id: string; clave: string; nombre: string };
+type Empleado = { id: string; clave: string; nombre: string; tipo_nomina?: string | null };
 type Opcion = { id: string; label: string };
 
 type Slot = {
@@ -18,11 +19,15 @@ type Slot = {
   cuadroId: string | null;
   cuadroNombre: string;
   cuadrosPermitidos: { id: string; label: string }[]; // vacio = sin restriccion (espacio manual)
+  cultivoId: string;
   empleadoTexto: string;
   empleadoId: string | null;
+  tipoNomina: "eventual" | "planta" | "temporal";
   tipoPago: "jornal" | "destajo";
   avance: string;
   tarifa: string;
+  horaEntrada: string;
+  horaSalida: string;
 };
 
 function uid() {
@@ -36,6 +41,8 @@ export default function ApuntadorPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [actividades, setActividades] = useState<Opcion[]>([]);
   const [cuadros, setCuadros] = useState<Opcion[]>([]);
+  const [cultivoPorCuadro, setCultivoPorCuadro] = useState<Record<string, string>>({});
+  const [cultivos, setCultivos] = useState<Opcion[]>([]);
   const [hectareasPorCampo, setHectareasPorCampo] = useState<Record<string, number>>({});
   const [registros, setRegistros] = useState<any[]>([]);
   const [loadingRegistros, setLoadingRegistros] = useState(true);
@@ -44,6 +51,18 @@ export default function ApuntadorPage() {
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [cargandoCenso, setCargandoCenso] = useState(false);
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
+  const [tarifaMasiva, setTarifaMasiva] = useState("");
+  const [cultivoMasivo, setCultivoMasivo] = useState("");
+  const [tipoNominaMasivo, setTipoNominaMasivo] = useState("");
+  const [actividadMasiva, setActividadMasiva] = useState("");
+  const [cuadroMasivo, setCuadroMasivo] = useState("");
+  const [horaEntradaMasiva, setHoraEntradaMasiva] = useState("");
+  const [horaSalidaMasiva, setHoraSalidaMasiva] = useState("");
+
+  // Tipo de nómina con el que se carga "la apuntada del día anterior".
+  const [tipoNominaCarga, setTipoNominaCarga] = useState<"eventual" | "planta" | "temporal">("eventual");
+  const [cargandoAnterior, setCargandoAnterior] = useState(false);
 
   const [fecha, setFecha] = useState(fechaLocalHoy());
   const [campoId, setCampoId] = useState("");
@@ -106,50 +125,79 @@ export default function ApuntadorPage() {
     );
   }
 
+  async function fetchTodasLasFilas(
+    construirQuery: (desde: number, hasta: number) => any
+  ) {
+    const TAMANO = 1000;
+    let todas: any[] = [];
+    let desde = 0;
+    while (true) {
+      const { data, error } = await construirQuery(desde, desde + TAMANO - 1);
+      if (error) {
+        setError(error.message);
+        break;
+      }
+      todas = todas.concat(data ?? []);
+      if (!data || data.length < TAMANO) break;
+      desde += TAMANO;
+    }
+    return todas;
+  }
+
   async function cargarCatalogos() {
-    const [{ data: camp }, { data: emp }, { data: act }, { data: cua }] =
+    const [{ data: camp }, { data: act }, cua, { data: cult }] =
       await Promise.all([
         supabase.from("campos").select("id, nombre").eq("activo", true).order("nombre"),
-        // Paginado: PostgREST corta en 1000 filas y dejaba fuera empleados.
-        traerTodo<Empleado>((desde, hasta) =>
-          supabase
-            .from("empleados")
-            .select("id, clave, nombre")
-            .eq("activo", true)
-            .order("clave")
-            .order("id")
-            .range(desde, hasta)
-        ),
         supabase.from("actividades").select("id, nombre").eq("activo", true).order("nombre"),
-        supabase.from("cuadros").select("id, nombre, hectareas, campos(nombre)").order("nombre"),
+        obtenerCuadrosPermitidos(supabase),
+        supabase.from("cultivos").select("id, nombre").eq("activo", true).order("nombre"),
       ]);
+    // Empleados puede superar el limite de filas por request (miles de
+    // registros), asi que se trae en tandas hasta completarlos todos.
+    const emp = await fetchTodasLasFilas((desde, hasta) =>
+      supabase
+        .from("empleados")
+        .select("id, clave, nombre, tipo_nomina")
+        .eq("activo", true)
+        .order("clave")
+        .range(desde, hasta)
+    );
+    emp.sort((a, b) => Number(a.clave) - Number(b.clave) || a.clave.localeCompare(b.clave));
+
     setCampos((camp ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
     setEmpleados(emp ?? []);
     setActividades((act ?? []).map((a: any) => ({ id: a.id, label: a.nombre })));
-    setCuadros((cua ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
+    setCuadros(cua.map((c) => ({ id: c.id, label: c.nombre })));
+    setCultivos((cult ?? []).map((c: any) => ({ id: c.id, label: c.nombre })));
+    const cultivoPorCuadro: Record<string, string> = {};
+    for (const c of cua) {
+      if (c.cultivoId) cultivoPorCuadro[c.id] = c.cultivoId;
+    }
+    setCultivoPorCuadro(cultivoPorCuadro);
 
-    // Total de hectareas por campo (suma de TODOS sus cuadros), usado
-    // para prorratear costos "generales" hasta que tengamos el Programa
-    // con los cuadros realmente activos por ciclo.
+    // Total de hectareas por campo, ahora ya basado en los cuadros del
+    // Programa activo (2026-2 / 2027-1) cuando el campo lo tiene; si un
+    // campo aun no tiene Programa, usa todos sus cuadros como respaldo.
     const totales: Record<string, number> = {};
-    for (const c of (cua ?? []) as any[]) {
-      const nombreCampo = c.campos?.nombre;
-      if (!nombreCampo) continue;
-      totales[nombreCampo] = (totales[nombreCampo] ?? 0) + Number(c.hectareas ?? 0);
+    for (const c of cua) {
+      totales[c.campoNombre] = (totales[c.campoNombre] ?? 0) + c.hectareas;
     }
     setHectareasPorCampo(totales);
   }
 
   async function cargarRegistros() {
     setLoadingRegistros(true);
-    const { semana, anio } = calcularPeriodo(fecha);
+    const eventual = calcularPeriodo(fecha, diaAnclaPorTipo("eventual"));
+    const plantaTemporal = calcularPeriodo(fecha, diaAnclaPorTipo("planta"));
     const { data, error } = await supabase
       .from("apuntador_diario")
       .select(
-        "id, fecha, periodo, periodo_anio, avance, tarifa, total, tipo_pago, empleado_id, cuadro_id, actividad_id, empleados(clave, nombre), cuadros(nombre, hectareas), actividades(nombre), campos(nombre)"
+        "id, fecha, periodo, periodo_anio, tipo_nomina, avance, tarifa, total, tipo_pago, empleado_id, cuadro_id, actividad_id, empleados(clave, nombre), cuadros(nombre, hectareas), actividades(nombre), campos(nombre)"
       )
-      .eq("periodo", semana)
-      .eq("periodo_anio", anio)
+      .or(
+        `and(periodo.eq.${eventual.semana},periodo_anio.eq.${eventual.anio},tipo_nomina.eq.eventual),` +
+          `and(periodo.eq.${plantaTemporal.semana},periodo_anio.eq.${plantaTemporal.anio},tipo_nomina.in.(planta,temporal))`
+      )
       .order("fecha", { ascending: false })
       .order("created_at", { ascending: false });
     if (error) setError(error.message);
@@ -242,6 +290,7 @@ export default function ApuntadorPage() {
         .map((c: any) => ({ id: c.id, label: c.nombre }));
 
       for (let i = 0; i < d.cantidad_personas; i++) {
+        const cuadroUnico = cuadrosPermitidos.length === 1 ? cuadrosPermitidos[0].id : null;
         nuevosSlots.push({
           key: uid(),
           actividadId,
@@ -249,7 +298,7 @@ export default function ApuntadorPage() {
           // Si solo hay UN cuadro posible, lo preseleccionamos solo.
           // Si hay varios (o ninguno = general), lo deja para que la
           // apuntadora elija.
-          cuadroId: cuadrosPermitidos.length === 1 ? cuadrosPermitidos[0].id : null,
+          cuadroId: cuadroUnico,
           cuadroNombre:
             cuadrosPermitidos.length === 0
               ? "General"
@@ -257,17 +306,78 @@ export default function ApuntadorPage() {
               ? cuadrosPermitidos[0].label
               : "",
           cuadrosPermitidos,
+          cultivoId: cuadroUnico ? cultivoPorCuadro[cuadroUnico] ?? "GENERAL" : "GENERAL",
           empleadoTexto: "",
           empleadoId: null,
+          tipoNomina: "eventual",
           tipoPago: "jornal",
           avance: "",
           tarifa: "",
+          horaEntrada: "",
+          horaSalida: "",
         });
       }
     }
 
+    // Trae del dia anterior (mismo campo) quien probablemente va a estar
+    // en cada actividad, para precargar nombre/tarifa/horario. El cuadro
+    // y la actividad los manda el censo de HOY, no el dia anterior.
+    const { data: ultimaFecha } = await supabase
+      .from("apuntador_diario")
+      .select("fecha")
+      .eq("campo_id", campoId)
+      .lt("fecha", fecha)
+      .order("fecha", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const disponiblesPorActividad = new Map<string, any[]>();
+    if (ultimaFecha) {
+      const { data: previos } = await supabase
+        .from("apuntador_diario")
+        .select(
+          "actividad_id, empleado_id, tarifa, avance, tipo_pago, hora_entrada, hora_salida, empleados(clave, nombre)"
+        )
+        .eq("campo_id", campoId)
+        .eq("fecha", ultimaFecha.fecha);
+
+      for (const p of (previos ?? []) as any[]) {
+        const lista = disponiblesPorActividad.get(p.actividad_id ?? "") ?? [];
+        lista.push(p);
+        disponiblesPorActividad.set(p.actividad_id ?? "", lista);
+      }
+    }
+
+    let emparejados = 0;
+    for (const slot of nuevosSlots) {
+      const lista = disponiblesPorActividad.get(slot.actividadId);
+      const prev = lista?.shift(); // toma uno y ya no se vuelve a usar
+      if (prev) {
+        slot.empleadoId = prev.empleado_id;
+        slot.empleadoTexto = prev.empleados
+          ? `${prev.empleados.clave} — ${prev.empleados.nombre}`
+          : "";
+        slot.tarifa = prev.tarifa != null ? String(prev.tarifa) : "";
+        slot.tipoPago = prev.tipo_pago;
+        slot.avance = prev.avance != null ? String(prev.avance) : "";
+        slot.horaEntrada = prev.hora_entrada ?? "";
+        slot.horaSalida = prev.hora_salida ?? "";
+        emparejados++;
+      }
+      // Si no hay coincidencia (actividad nueva o no habia suficiente
+      // gente ayer), el espacio se queda en blanco para llenarlo a mano.
+    }
+
     setSlots(nuevosSlots);
+    setSeleccionados(new Set());
     const avisos: string[] = [];
+    if (emparejados > 0) {
+      avisos.push(
+        `${emparejados} de ${nuevosSlots.length} espacios se precargaron con datos de ${
+          ultimaFecha?.fecha ?? "el día anterior"
+        }. Revisa y ajusta lo que haga falta.`
+      );
+    }
     if (variables > 0) {
       avisos.push(
         `${variables} espacio(s) no tienen una actividad fija (ej. operadores de tractor) — elige la actividad específica de ese día en cada uno.`
@@ -283,6 +393,155 @@ export default function ApuntadorPage() {
     setCargandoCenso(false);
   }
 
+  function toggleSeleccion(key: string) {
+    setSeleccionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSeleccionarTodos() {
+    if (seleccionados.size === slots.length) {
+      setSeleccionados(new Set());
+    } else {
+      setSeleccionados(new Set(slots.map((s) => s.key)));
+    }
+  }
+
+  function aplicarValoresMasivos() {
+    if (seleccionados.size === 0) {
+      setError("Selecciona al menos un espacio (casilla a la izquierda) para aplicar los valores.");
+      return;
+    }
+    setSlots((prev) =>
+      prev.map((s) =>
+        seleccionados.has(s.key)
+          ? {
+              ...s,
+              tarifa: tarifaMasiva !== "" ? tarifaMasiva : s.tarifa,
+              horaEntrada: horaEntradaMasiva !== "" ? horaEntradaMasiva : s.horaEntrada,
+              horaSalida: horaSalidaMasiva !== "" ? horaSalidaMasiva : s.horaSalida,
+              cultivoId: cultivoMasivo !== "" ? cultivoMasivo : s.cultivoId,
+              tipoNomina: tipoNominaMasivo !== "" ? (tipoNominaMasivo as any) : s.tipoNomina,
+              actividadId: actividadMasiva !== "" ? actividadMasiva : s.actividadId,
+              actividadNombre:
+                actividadMasiva !== ""
+                  ? actividades.find((a) => a.id === actividadMasiva)?.label ?? s.actividadNombre
+                  : s.actividadNombre,
+              cuadroId: cuadroMasivo !== "" ? cuadroMasivo : s.cuadroId,
+              cuadroNombre:
+                cuadroMasivo !== ""
+                  ? cuadros.find((c) => c.id === cuadroMasivo)?.label ?? s.cuadroNombre
+                  : s.cuadroNombre,
+            }
+          : s
+      )
+    );
+  }
+
+  // Carga los espacios a partir de la ÚLTIMA apuntada anterior del mismo
+  // campo y tipo de nómina (útil cuando ese día no se hizo censo). Copia
+  // trabajador, actividad, cuadro, cultivo, tipo de pago, tarifa y horario.
+  // El avance (destajo) no se copia porque cambia cada día.
+  async function cargarDeApuntadaAnterior() {
+    if (!campoId) {
+      setError("Selecciona el campo primero.");
+      return;
+    }
+    if (
+      slots.length > 0 &&
+      !confirm("Ya hay espacios en pantalla, ¿reemplazarlos con los de la apuntada anterior?")
+    ) {
+      return;
+    }
+    setCargandoAnterior(true);
+    setError(null);
+    setAvisoCenso(null);
+
+    const { data: ultima, error: errUlt } = await supabase
+      .from("apuntador_diario")
+      .select("fecha")
+      .eq("campo_id", campoId)
+      .eq("tipo_nomina", tipoNominaCarga)
+      .lt("fecha", fecha)
+      .order("fecha", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (errUlt) {
+      setError(errUlt.message);
+      setCargandoAnterior(false);
+      return;
+    }
+    if (!ultima) {
+      setAvisoCenso(
+        "No hay una apuntada anterior de ese campo y tipo de nómina. Puedes cargar el censo o agregar espacios manualmente."
+      );
+      setCargandoAnterior(false);
+      return;
+    }
+
+    const previos = await fetchTodasLasFilas((desde, hasta) =>
+      supabase
+        .from("apuntador_diario")
+        .select(
+          "actividad_id, cuadro_id, cultivo_id, empleado_id, tipo_pago, tarifa, hora_entrada, hora_salida, empleados(clave, nombre), actividades(nombre), cuadros(nombre)"
+        )
+        .eq("campo_id", campoId)
+        .eq("tipo_nomina", tipoNominaCarga)
+        .eq("fecha", ultima.fecha)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(desde, hasta)
+    );
+
+    // No duplicar trabajadores que ya se apuntaron hoy en este campo.
+    const yaHoy = new Set(
+      registros
+        .filter((r) => r.fecha === fecha && r.campos?.nombre === campos.find((c) => c.id === campoId)?.label)
+        .map((r) => r.empleado_id)
+    );
+
+    const nuevos: Slot[] = [];
+    let omitidos = 0;
+    for (const p of previos) {
+      if (p.empleado_id && yaHoy.has(p.empleado_id)) {
+        omitidos++;
+        continue;
+      }
+      nuevos.push({
+        key: uid(),
+        actividadId: p.actividad_id ?? "",
+        actividadNombre: p.actividades?.nombre ?? "",
+        cuadroId: p.cuadro_id ?? null,
+        cuadroNombre: p.cuadros?.nombre ?? "General",
+        cuadrosPermitidos: [],
+        cultivoId: p.cultivo_id ?? "GENERAL",
+        empleadoTexto: p.empleados ? `${p.empleados.clave} — ${p.empleados.nombre}` : "",
+        empleadoId: p.empleado_id ?? null,
+        tipoNomina: tipoNominaCarga,
+        tipoPago: p.tipo_pago === "destajo" ? "destajo" : "jornal",
+        avance: "",
+        tarifa: p.tarifa != null ? String(p.tarifa) : "",
+        horaEntrada: p.hora_entrada ?? "",
+        horaSalida: p.hora_salida ?? "",
+      });
+    }
+
+    setSlots(nuevos);
+    setSeleccionados(new Set());
+    const avisos = [
+      `Se cargaron ${nuevos.length} trabajador(es) de la apuntada del ${ultima.fecha} (${tipoNominaCarga}). Revisa cuadro, actividad y tarifa antes de guardar.`,
+    ];
+    if (omitidos > 0) avisos.push(`${omitidos} ya estaban apuntados hoy en este campo y se omitieron.`);
+    if (previos.some((p) => p.tipo_pago === "destajo")) {
+      avisos.push("Hay trabajadores a destajo: captura el avance de hoy.");
+    }
+    setAvisoCenso(avisos.join(" "));
+    setCargandoAnterior(false);
+  }
+
   function agregarSlotManual() {
     setSlots((s) => [
       ...s,
@@ -293,11 +552,15 @@ export default function ApuntadorPage() {
         cuadroId: null,
         cuadroNombre: "",
         cuadrosPermitidos: [],
+        cultivoId: "GENERAL",
         empleadoTexto: "",
         empleadoId: null,
+        tipoNomina: "eventual",
         tipoPago: "jornal",
         avance: "",
         tarifa: "",
+        horaEntrada: "",
+        horaSalida: "",
       },
     ]);
   }
@@ -312,48 +575,62 @@ export default function ApuntadorPage() {
     );
   }
 
-  function manejarTextoEmpleado(key: string, texto: string) {
-    const match = empleados.find(
-      (e) => `${e.clave} — ${e.nombre}` === texto
-    );
-    actualizarSlot(key, {
-      empleadoTexto: texto,
-      empleadoId: match ? match.id : null,
-    });
-  }
 
   async function guardarTodo() {
-    const validos = slots.filter(
-      (s) => s.empleadoId && s.actividadId && s.tarifa
-    );
+    const conDatosBasicos = slots.filter((s) => s.empleadoId && s.actividadId);
+    const sinCultivo = conDatosBasicos.filter((s) => !s.cultivoId);
+    if (sinCultivo.length > 0) {
+      setError(
+        `${sinCultivo.length} espacio(s) no tienen cultivo elegido. Selecciona un cultivo, o "General" si aplica a todo el campo, antes de guardar.`
+      );
+      return;
+    }
+    const validos = conDatosBasicos;
     if (validos.length === 0) {
       setError(
-        "No hay espacios completos para guardar (falta empleado, actividad o tarifa)."
+        "No hay espacios completos para guardar (falta empleado, actividad o cultivo)."
       );
       return;
     }
     setGuardando(true);
     setError(null);
 
-    const filas = validos.map((s) => ({
-      fecha,
-      empleado_id: s.empleadoId,
-      cuadro_id: s.cuadroId,
-      campo_id: campoId,
-      actividad_id: s.actividadId,
-      tipo_pago: s.tipoPago,
-      dias: s.tipoPago === "jornal" ? 1 : null,
-      avance: s.tipoPago === "destajo" ? parseFloat(s.avance || "0") : null,
-      tarifa: parseFloat(s.tarifa),
-      periodo: periodo.semana,
-      periodo_anio: periodo.anio,
-    }));
+    const filas = validos.map((s) => {
+      const p = calcularPeriodo(fecha, diaAnclaPorTipo(s.tipoNomina));
+      return {
+        fecha,
+        empleado_id: s.empleadoId,
+        cuadro_id: s.cuadroId,
+        campo_id: campoId,
+        actividad_id: s.actividadId,
+        cultivo_id: s.cultivoId === "GENERAL" ? null : s.cultivoId,
+        tipo_nomina: s.tipoNomina,
+        tipo_pago: s.tipoPago,
+        dias: s.tipoPago === "jornal" ? 1 : null,
+        avance: s.tipoPago === "destajo" ? parseFloat(s.avance || "0") : null,
+        tarifa: s.tarifa ? parseFloat(s.tarifa) : null,
+        periodo: p.semana,
+        periodo_anio: p.anio,
+        hora_entrada: s.horaEntrada || null,
+        hora_salida: s.horaSalida || null,
+      };
+    });
 
     const { error } = await supabase.from("apuntador_diario").insert(filas);
     setGuardando(false);
     if (error) {
       setError(error.message);
       return;
+    }
+
+    // Deja "fijo" el tipo de nomina del trabajador para la proxima vez,
+    // si lo cambiaste aqui (ej. lo pasaste a Planta).
+    for (const s of validos) {
+      const emp = empleados.find((e) => e.id === s.empleadoId);
+      if (emp && emp.tipo_nomina !== s.tipoNomina) {
+        await supabase.from("empleados").update({ tipo_nomina: s.tipoNomina }).eq("id", s.empleadoId);
+        emp.tipo_nomina = s.tipoNomina;
+      }
     }
 
     const incompletos = slots.length - validos.length;
@@ -386,7 +663,7 @@ export default function ApuntadorPage() {
       actividadId: r.actividad_id ?? "",
       tipoPago: r.tipo_pago,
       avance: r.avance != null ? String(r.avance) : "",
-      tarifa: String(r.tarifa),
+      tarifa: r.tarifa != null ? String(r.tarifa) : "",
     });
   }
 
@@ -406,7 +683,7 @@ export default function ApuntadorPage() {
         tipo_pago: edicion.tipoPago,
         dias: edicion.tipoPago === "jornal" ? 1 : null,
         avance: edicion.tipoPago === "destajo" ? parseFloat(edicion.avance || "0") : null,
-        tarifa: parseFloat(edicion.tarifa),
+        tarifa: edicion.tarifa ? parseFloat(edicion.tarifa) : null,
       })
       .eq("id", id);
     if (error) {
@@ -434,16 +711,10 @@ export default function ApuntadorPage() {
         Apuntador diario
       </h1>
       <p className="mb-6 text-sm text-campo-600">
-        Carga los espacios del censo del día y asigna el nombre de cada
-        trabajador.
+        Carga los espacios del censo del día (cuadro y actividad), con
+        nombre/tarifa/horario precargados de quien hizo lo mismo el día
+        anterior — ajusta lo que haga falta.
       </p>
-
-      {/* datalist compartido para el buscador de empleados */}
-      <datalist id="empleados-datalist">
-        {empleados.map((e) => (
-          <option key={e.id} value={`${e.clave} — ${e.nombre}`} />
-        ))}
-      </datalist>
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -461,7 +732,7 @@ export default function ApuntadorPage() {
         </div>
       )}
 
-      <div className="card mb-4 grid grid-cols-4 items-end gap-3 p-4">
+      <div className="card mb-4 grid grid-cols-1 items-end gap-3 p-4 sm:grid-cols-2 md:grid-cols-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">
             Fecha
@@ -505,25 +776,167 @@ export default function ApuntadorPage() {
         >
           {cargandoCenso ? "Cargando..." : "Cargar espacios del censo"}
         </button>
+        <div className="col-span-4 flex flex-wrap items-end gap-3 border-t border-campo-100 pt-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">
+              Tipo de nómina a cargar
+            </label>
+            <select
+              className="input"
+              value={tipoNominaCarga}
+              onChange={(e) => setTipoNominaCarga(e.target.value as any)}
+            >
+              <option value="eventual">Eventual</option>
+              <option value="planta">Planta</option>
+              <option value="temporal">Temporal</option>
+            </select>
+          </div>
+          <button
+            className="btn-primary"
+            onClick={cargarDeApuntadaAnterior}
+            disabled={cargandoAnterior}
+          >
+            {cargandoAnterior ? "Cargando..." : "Cargar apuntada del día anterior"}
+          </button>
+          <p className="text-xs text-campo-500">
+            Sin censo: copia a los trabajadores de la última apuntada de este campo y tipo de nómina.
+          </p>
+        </div>
       </div>
 
       {slots.length > 0 && (
-        <div className="card mb-4 overflow-hidden">
+        <div className="card mb-3 flex flex-wrap items-end gap-3 p-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Tarifa</label>
+            <input
+              type="number"
+              step="any"
+              className="input w-28"
+              placeholder="ej. 250"
+              value={tarifaMasiva}
+              onChange={(e) => setTarifaMasiva(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">H. entrada</label>
+            <input
+              type="time"
+              className="input w-28"
+              value={horaEntradaMasiva}
+              onChange={(e) => setHoraEntradaMasiva(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">H. salida</label>
+            <input
+              type="time"
+              className="input w-28"
+              value={horaSalidaMasiva}
+              onChange={(e) => setHoraSalidaMasiva(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Cultivo</label>
+            <select
+              className="input w-40"
+              value={cultivoMasivo}
+              onChange={(e) => setCultivoMasivo(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              <option value="GENERAL">General (prorratear)</option>
+              {cultivos.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Tipo nómina</label>
+            <select
+              className="input w-32"
+              value={tipoNominaMasivo}
+              onChange={(e) => setTipoNominaMasivo(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              <option value="eventual">Eventual</option>
+              <option value="planta">Planta</option>
+              <option value="temporal">Temporal</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Actividad</label>
+            <select
+              className="input w-40"
+              value={actividadMasiva}
+              onChange={(e) => setActividadMasiva(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              {actividades.map((a) => (
+                <option key={a.id} value={a.id}>{a.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-campo-600">Cuadro</label>
+            <select
+              className="input w-32"
+              value={cuadroMasivo}
+              onChange={(e) => setCuadroMasivo(e.target.value)}
+            >
+              <option value="">— sin cambio —</option>
+              {cuadros.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <button className="btn-secondary" onClick={aplicarValoresMasivos}>
+            Aplicar a {seleccionados.size} seleccionados
+          </button>
+          <span className="text-xs text-campo-500">
+            Marca las casillas de la tabla de abajo y llena solo los campos que quieras aplicar.
+          </span>
+        </div>
+      )}
+
+      {slots.length > 0 && (
+        <div className="card mb-4 hidden overflow-visible md:block">
           <table className="w-full text-sm">
             <thead className="bg-campo-50 text-left text-xs font-medium text-campo-600">
               <tr>
+                <th className="px-2 py-2">
+                  <input
+                    type="checkbox"
+                    checked={seleccionados.size === slots.length && slots.length > 0}
+                    onChange={toggleSeleccionarTodos}
+                  />
+                </th>
                 <th className="px-2 py-2">Actividad</th>
                 <th className="px-2 py-2">Cuadro</th>
+                <th className="px-2 py-2">Cultivo</th>
                 <th className="px-2 py-2">Trabajador</th>
+                <th className="px-2 py-2">Tipo nómina</th>
                 <th className="px-2 py-2">Tipo</th>
                 <th className="px-2 py-2">Avance</th>
                 <th className="px-2 py-2">Tarifa</th>
+                <th className="px-2 py-2">H. entrada</th>
+                <th className="px-2 py-2">H. salida</th>
                 <th className="px-2 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {slots.map((s) => (
-                <tr key={s.key} className="border-t border-campo-50">
+                <tr
+                  key={s.key}
+                  className={`border-t border-campo-50 ${
+                    seleccionados.has(s.key) ? "bg-campo-50" : ""
+                  }`}
+                >
+                  <td className="px-2 py-1">
+                    <input
+                      type="checkbox"
+                      checked={seleccionados.has(s.key)}
+                      onChange={() => toggleSeleccion(s.key)}
+                    />
+                  </td>
                   <td className="px-2 py-1">
                     <select
                       className="input"
@@ -557,6 +970,9 @@ export default function ApuntadorPage() {
                           actualizarSlot(s.key, {
                             cuadroId: e.target.value || null,
                             cuadroNombre: cua?.label ?? "General",
+                            cultivoId: e.target.value
+                              ? cultivoPorCuadro[e.target.value] ?? s.cultivoId
+                              : s.cultivoId,
                           });
                         }}
                       >
@@ -570,16 +986,49 @@ export default function ApuntadorPage() {
                     )}
                   </td>
                   <td className="px-2 py-1">
-                    <input
-                      className="input w-48"
-                      list="empleados-datalist"
-                      placeholder="Buscar clave o nombre..."
-                      value={s.empleadoTexto}
-                      onChange={(e) => manejarTextoEmpleado(s.key, e.target.value)}
+                    <select
+                      className="input"
+                      value={s.cultivoId}
+                      onChange={(e) => actualizarSlot(s.key, { cultivoId: e.target.value })}
+                    >
+                      <option value="">Selecciona...</option>
+                      <option value="GENERAL">General (prorratear)</option>
+                      {cultivos.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-2 py-1">
+                    <BuscadorEmpleado
+                      empleados={empleados}
+                      valorTexto={s.empleadoTexto}
+                      onSeleccionar={(empleadoId, texto) => {
+                        const emp = empleados.find((e) => e.id === empleadoId);
+                        actualizarSlot(s.key, {
+                          empleadoTexto: texto,
+                          empleadoId,
+                          tipoNomina: (emp?.tipo_nomina as any) ?? s.tipoNomina,
+                        });
+                      }}
                     />
                     {s.empleadoTexto && !s.empleadoId && (
-                      <p className="text-[10px] text-red-500">Sin coincidencia</p>
+                      <p className="text-[10px] text-red-500">Sin seleccionar de la lista</p>
                     )}
+                  </td>
+                  <td className="px-2 py-1">
+                    <select
+                      className="input"
+                      value={s.tipoNomina}
+                      onChange={(e) =>
+                        actualizarSlot(s.key, { tipoNomina: e.target.value as any })
+                      }
+                    >
+                      <option value="eventual">Eventual</option>
+                      <option value="planta">Planta</option>
+                      <option value="temporal">Temporal</option>
+                    </select>
                   </td>
                   <td className="px-2 py-1">
                     <select
@@ -619,6 +1068,26 @@ export default function ApuntadorPage() {
                     />
                   </td>
                   <td className="px-2 py-1">
+                    <input
+                      type="time"
+                      className="input w-24"
+                      value={s.horaEntrada}
+                      onChange={(e) =>
+                        actualizarSlot(s.key, { horaEntrada: e.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="px-2 py-1">
+                    <input
+                      type="time"
+                      className="input w-24"
+                      value={s.horaSalida}
+                      onChange={(e) =>
+                        actualizarSlot(s.key, { horaSalida: e.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="px-2 py-1">
                     <button
                       className="text-red-500 hover:text-red-700"
                       onClick={() => quitarSlot(s.key)}
@@ -634,7 +1103,225 @@ export default function ApuntadorPage() {
         </div>
       )}
 
-      <div className="mb-6 flex gap-3">
+      {/* Vista en tarjetas, solo en celular */}
+      {slots.length > 0 && (
+        <div className="mb-4 space-y-3 md:hidden">
+          <label className="flex items-center gap-2 rounded-md bg-campo-50 px-3 py-2 text-sm text-campo-700">
+            <input
+              type="checkbox"
+              checked={seleccionados.size === slots.length && slots.length > 0}
+              onChange={toggleSeleccionarTodos}
+            />
+            Seleccionar todos ({seleccionados.size}/{slots.length})
+          </label>
+          {slots.map((s) => (
+            <div
+              key={s.key}
+              className={`card p-3 ${seleccionados.has(s.key) ? "border-campo-300 bg-campo-50" : ""}`}
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <label className="flex items-center gap-2 text-xs text-campo-600">
+                  <input
+                    type="checkbox"
+                    checked={seleccionados.has(s.key)}
+                    onChange={() => toggleSeleccion(s.key)}
+                  />
+                  Seleccionar
+                </label>
+                <button
+                  className="text-red-500 hover:text-red-700"
+                  onClick={() => quitarSlot(s.key)}
+                  title="Quitar espacio"
+                >
+                  × Quitar
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <div className="">
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Actividad
+                  </label>
+                  <select
+                    className="input"
+                    value={s.actividadId}
+                    onChange={(e) => {
+                      const act = actividades.find((a) => a.id === e.target.value);
+                      actualizarSlot(s.key, {
+                        actividadId: e.target.value,
+                        actividadNombre: act?.label ?? "",
+                      });
+                    }}
+                  >
+                    <option value="">Actividad...</option>
+                    {actividades.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Cuadro
+                  </label>
+                  {s.cuadrosPermitidos.length === 1 ? (
+                    <p className="input bg-campo-50 text-campo-800">{s.cuadroNombre}</p>
+                  ) : (
+                    <select
+                      className="input"
+                      value={s.cuadroId ?? ""}
+                      onChange={(e) => {
+                        const opciones = s.cuadrosPermitidos.length > 0 ? s.cuadrosPermitidos : cuadros;
+                        const cua = opciones.find((c) => c.id === e.target.value);
+                        actualizarSlot(s.key, {
+                          cuadroId: e.target.value || null,
+                          cuadroNombre: cua?.label ?? "General",
+                          cultivoId: e.target.value
+                            ? cultivoPorCuadro[e.target.value] ?? s.cultivoId
+                            : s.cultivoId,
+                        });
+                      }}
+                    >
+                      <option value="">General</option>
+                      {(s.cuadrosPermitidos.length > 0 ? s.cuadrosPermitidos : cuadros).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Cultivo
+                  </label>
+                  <select
+                    className="input"
+                    value={s.cultivoId}
+                    onChange={(e) => actualizarSlot(s.key, { cultivoId: e.target.value })}
+                  >
+                    <option value="">Selecciona...</option>
+                    <option value="GENERAL">General (prorratear)</option>
+                    {cultivos.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="">
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Trabajador
+                  </label>
+                  <BuscadorEmpleado
+                    empleados={empleados}
+                    valorTexto={s.empleadoTexto}
+                    onSeleccionar={(empleadoId, texto) => {
+                      const emp = empleados.find((e) => e.id === empleadoId);
+                      actualizarSlot(s.key, {
+                        empleadoTexto: texto,
+                        empleadoId,
+                        tipoNomina: (emp?.tipo_nomina as any) ?? s.tipoNomina,
+                      });
+                    }}
+                  />
+                  {s.empleadoTexto && !s.empleadoId && (
+                    <p className="text-[10px] text-red-500">Sin seleccionar de la lista</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Tipo nómina
+                  </label>
+                  <select
+                    className="input"
+                    value={s.tipoNomina}
+                    onChange={(e) => actualizarSlot(s.key, { tipoNomina: e.target.value as any })}
+                  >
+                    <option value="eventual">Eventual</option>
+                    <option value="planta">Planta</option>
+                    <option value="temporal">Temporal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Tipo
+                  </label>
+                  <select
+                    className="input"
+                    value={s.tipoPago}
+                    onChange={(e) =>
+                      actualizarSlot(s.key, {
+                        tipoPago: e.target.value as "jornal" | "destajo",
+                      })
+                    }
+                  >
+                    <option value="jornal">Jornal</option>
+                    <option value="destajo">Destajo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Avance
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="input disabled:opacity-30"
+                    disabled={s.tipoPago !== "destajo"}
+                    value={s.avance}
+                    onChange={(e) => actualizarSlot(s.key, { avance: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    Tarifa
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    className="input"
+                    value={s.tarifa}
+                    onChange={(e) => actualizarSlot(s.key, { tarifa: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    H. entrada
+                  </label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={s.horaEntrada}
+                    onChange={(e) => actualizarSlot(s.key, { horaEntrada: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-[11px] font-medium text-campo-500">
+                    H. salida
+                  </label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={s.horaSalida}
+                    onChange={(e) => actualizarSlot(s.key, { horaSalida: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mb-6 flex flex-wrap gap-3">
         <button className="btn-secondary" onClick={agregarSlotManual}>
           + Agregar espacio manual
         </button>
@@ -646,7 +1333,7 @@ export default function ApuntadorPage() {
       </div>
 
       <h2 className="mb-2 text-sm font-semibold text-campo-800">
-        Registros del periodo actual (S{periodo.semana}-{periodo.anio})
+        Registros del periodo actual — Eventual (S{periodo.semana}-{periodo.anio}), Planta/Temporal (semana miércoles-martes)
       </h2>
 
       {loadingRegistros && (
@@ -683,10 +1370,12 @@ export default function ApuntadorPage() {
               </button>
             </span>
           </summary>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="text-left text-xs font-medium text-campo-600">
               <tr>
                 <th className="px-4 py-2">Periodo</th>
+                <th className="px-4 py-2">Tipo</th>
                 <th className="px-4 py-2">Empleado</th>
                 <th className="px-4 py-2">Cuadro</th>
                 <th className="px-4 py-2">Actividad</th>
@@ -700,6 +1389,9 @@ export default function ApuntadorPage() {
                   <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
                     <td className="px-4 py-1 text-campo-600">
                       {r.periodo ? `S${r.periodo}-${r.periodo_anio}` : "—"}
+                    </td>
+                    <td className="px-4 py-1 text-campo-600 capitalize">
+                      {r.tipo_nomina ?? "eventual"}
                     </td>
                     <td className="px-4 py-1">
                       <select
@@ -783,6 +1475,9 @@ export default function ApuntadorPage() {
                     <td className="px-4 py-2 text-campo-800">
                       {r.periodo ? `S${r.periodo}-${r.periodo_anio}` : "—"}
                     </td>
+                    <td className="px-4 py-2 text-campo-800 capitalize">
+                      {r.tipo_nomina ?? "eventual"}
+                    </td>
                     <td className="px-4 py-2 text-campo-800">
                       {r.empleados?.clave} — {r.empleados?.nombre}
                     </td>
@@ -808,6 +1503,7 @@ export default function ApuntadorPage() {
               )}
             </tbody>
           </table>
+          </div>
         </details>
       ))}
     </div>
