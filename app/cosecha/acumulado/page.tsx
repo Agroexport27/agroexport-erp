@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelAcumulado } from "@/lib/excel/acumulado";
+import { generarExcelAcumuladoSandia } from "@/lib/excel/acumuladoSandia";
 import { generarPdfAcumulado } from "@/lib/pdf/acumulado";
 
 type Opcion = { id: string; label: string };
@@ -508,6 +509,18 @@ export default function AcumuladoCosechaPage() {
   const mostrarTamano = esCultivoConTamano(cultivoNombreSel) || resumenVariedad.hayCuadro31;
 
   function descargarExcel() {
+    // Sandía Mini (y variantes): formato idéntico al Excel consolidado de
+    // referencia (una hoja por campo + "x DISTRIB").
+    if (esCultivoConTamano(cultivoNombreSel) && !esPepino) {
+      generarExcelAcumuladoSandia({
+        registros,
+        cuadrosPlantados,
+        cajasManualPorCorte,
+        campos,
+        cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "",
+      }).catch((e) => setError(e?.message ?? "No se pudo generar el Excel."));
+      return;
+    }
     generarExcelAcumulado({
       consolidadoDiario,
       detallePorCuadro,
