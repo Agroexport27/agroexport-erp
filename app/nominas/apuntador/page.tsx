@@ -441,7 +441,7 @@ export default function ApuntadorPage() {
     );
   }
 
-  // Carga los espacios a partir de la ÚLTIMA apuntada anterior del mismo
+  // Carga los espacios a partir de la ÚLTIMA apuntada registrada (cualquier día anterior) del mismo
   // campo y tipo de nómina (útil cuando ese día no se hizo censo). Copia
   // trabajador, actividad, cuadro, cultivo, tipo de pago, tarifa y horario.
   // El avance (destajo) no se copia porque cambia cada día.
@@ -452,7 +452,7 @@ export default function ApuntadorPage() {
     }
     if (
       slots.length > 0 &&
-      !confirm("Ya hay espacios en pantalla, ¿reemplazarlos con los de la apuntada anterior?")
+      !confirm("Ya hay espacios en pantalla, ¿reemplazarlos con los de la última apuntada?")
     ) {
       return;
     }
@@ -476,7 +476,7 @@ export default function ApuntadorPage() {
     }
     if (!ultima) {
       setAvisoCenso(
-        "No hay una apuntada anterior de ese campo y tipo de nómina. Puedes cargar el censo o agregar espacios manualmente."
+        "No hay una apuntada anterior registrada de ese campo y tipo de nómina. Puedes cargar el censo o agregar espacios manualmente."
       );
       setCargandoAnterior(false);
       return;
@@ -532,7 +532,7 @@ export default function ApuntadorPage() {
     setSlots(nuevos);
     setSeleccionados(new Set());
     const avisos = [
-      `Se cargaron ${nuevos.length} trabajador(es) de la apuntada del ${ultima.fecha} (${tipoNominaCarga}). Revisa cuadro, actividad y tarifa antes de guardar.`,
+      `Se cargaron ${nuevos.length} trabajador(es) de la última apuntada registrada, del ${ultima.fecha} (${tipoNominaCarga}). Revisa cuadro, actividad y tarifa antes de guardar.`,
     ];
     if (omitidos > 0) avisos.push(`${omitidos} ya estaban apuntados hoy en este campo y se omitieron.`);
     if (previos.some((p) => p.tipo_pago === "destajo")) {
@@ -796,10 +796,10 @@ export default function ApuntadorPage() {
             onClick={cargarDeApuntadaAnterior}
             disabled={cargandoAnterior}
           >
-            {cargandoAnterior ? "Cargando..." : "Cargar apuntada del día anterior"}
+            {cargandoAnterior ? "Cargando..." : "Cargar última apuntada"}
           </button>
           <p className="text-xs text-campo-500">
-            Sin censo: copia a los trabajadores de la última apuntada de este campo y tipo de nómina.
+            Sin censo: copia a los trabajadores de la última apuntada registrada de este campo y tipo de nómina (no importa cuántos días atrás haya sido).
           </p>
         </div>
       </div>
