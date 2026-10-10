@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { CONFIG_EMBARQUES, EMPAQUE_OPCIONES } from "@/lib/embarquesConfig";
+import { CONFIG_EMBARQUES, EMPAQUE_OPCIONES, CALIBRES_SOLO_AMARILLA } from "@/lib/embarquesConfig";
 import MultiSelectCuadros from "@/components/MultiSelectCuadros";
 import { generarManifiestoDeRemision } from "@/lib/manifiestoHelper";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
@@ -224,7 +224,7 @@ export default function EmbarquesPage() {
     }
 
     const detalle: any[] = [];
-    for (const nombreCal of config.cajas) {
+    for (const nombreCal of config.cajas.filter((n) => !CALIBRES_SOLO_AMARILLA.includes(n))) {
       const cantidad = parseFloat(valoresCajas[nombreCal] || "0");
       if (cantidad <= 0) continue;
       const calibreId = calibres.find((c) => c.nombre === nombreCal)?.id;
@@ -462,7 +462,7 @@ export default function EmbarquesPage() {
             {esSandiaMini ? "Cajas por calibre — Sandía Mini" : "Cajas por calibre"}
           </p>
           <div className="mb-4 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-7">
-            {config.cajas.map((nombreCal) => (
+            {config.cajas.filter((n) => !CALIBRES_SOLO_AMARILLA.includes(n)).map((nombreCal) => (
               <div key={nombreCal}>
                 <label className="mb-1 block text-[11px] text-campo-500">{nombreCal}</label>
                 <input

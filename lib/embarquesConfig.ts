@@ -22,7 +22,8 @@ const BINS_UNIFICADOS = [
 
 export const CONFIG_EMBARQUES: Record<string, ConfigDistribuidor> = {
   Dulcinea: {
-    cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "FT 8C", "4 D"],
+    // 8COAM = 8 Costco de Sandía Mini Amarilla (malla amarilla Dulcinea)
+    cajas: ["6", "6 J", "8", "9", "M 9", "11", "8 COS", "8COAM", "FT 8C", "4 D"],
     bins: BINS_UNIFICADOS,
   },
   Giumarra: {
@@ -42,5 +43,9 @@ export const CONFIG_EMBARQUES: Record<string, ConfigDistribuidor> = {
     bins: BINS_UNIFICADOS,
   },
 };
+
+// Calibres que SIEMPRE son Sandía Mini Amarilla (no se capturan en el bloque
+// de Sandía Mini roja).
+export const CALIBRES_SOLO_AMARILLA = ["8COAM"];
 
 export const EMPAQUE_OPCIONES = ["Convencional", "Orgánico", "Regular", "REOrgánico", "Amarilla"];

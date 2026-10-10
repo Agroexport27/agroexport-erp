@@ -258,7 +258,10 @@ export default function CorteDiarioPage() {
             tipo_unidad: "pallet",
             cantidad_unidades: pallets,
             cajas: pallets * rate,
-            clasificacion: clasificacionEfectiva,
+            // 8COAM (8 Costco de Sandía Mini Amarilla) siempre es Amarilla:
+            // así usa su receta de materiales (malla amarilla) y se cuenta
+            // como Amarilla en el Acumulado.
+            clasificacion: c.nombre.trim().toUpperCase() === "8COAM" ? "Amarilla" : clasificacionEfectiva,
           });
         }
         for (const c of calibresBin) {

@@ -12,7 +12,7 @@ const TAMANOS_BASE = ["6", "8", "9", "11"];
 function tamanoDeCalibre(nombreCalibre: string): string | null {
   const n = (nombreCalibre ?? "").trim().toUpperCase();
   if (n === "M 9" || n === "M9") return "9";
-  if (n === "8 COS" || n === "FT 8C") return "8";
+  if (n === "8 COS" || n === "8COAM" || n === "FT 8C") return "8";
   if (n === "6 J" || n === "6 JXL" || n === "4D COS" || n === "4 D") return "6";
   if (TAMANOS_BASE.includes(n)) return n;
   return null;
