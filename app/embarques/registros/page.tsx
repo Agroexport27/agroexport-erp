@@ -22,6 +22,8 @@ type EdicionManifiesto = {
   cantidadTarimas: string;
   tipoTarima2: string;
   cantidadTarimas2: string;
+  chismografo: string;
+  nota: string;
 };
 
 const TIPOS_TARIMA = ["TARIMA CHEP", "TARIMA AZUL", "TARIMA CAFE TACON"];
@@ -37,6 +39,7 @@ export default function RegistrosEmbarquesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [desgloseId, setDesgloseId] = useState<string | null>(null);
   const [edicion, setEdicion] = useState<EdicionManifiesto | null>(null);
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const [cuadrosPorCampo, setCuadrosPorCampo] = useState<Record<string, Opcion[]>>({});
@@ -75,7 +78,7 @@ export default function RegistrosEmbarquesPage() {
     let query = supabase
       .from("remision_envio")
       .select(
-        "id, fecha_empaque, manifiesto, caja_transporte, empaque, campo_id, distribuidor_id, tipo_tarima, cantidad_tarimas, tipo_tarima_2, cantidad_tarimas_2, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
+        "id, fecha_empaque, manifiesto, caja_transporte, placas, chofer, chismografo, nota, empaque, campo_id, distribuidor_id, tipo_tarima, cantidad_tarimas, tipo_tarima_2, cantidad_tarimas_2, campos(nombre), cuadros(nombre), distribuidores(nombre), remision_detalle(id, calibre_id, etiqueta_libre, cantidad_cajas, cantidad_bins, calibres(nombre)), remision_envio_cuadro(cuadro_id, cuadros(nombre))"
       )
       .gte("fecha_empaque", fechaInicio)
       .lte("fecha_empaque", fechaFin)
@@ -204,6 +207,8 @@ export default function RegistrosEmbarquesPage() {
       cantidadTarimas: Number(r.cantidad_tarimas ?? 0) > 0 ? String(r.cantidad_tarimas) : "",
       tipoTarima2: r.tipo_tarima_2 ?? "",
       cantidadTarimas2: Number(r.cantidad_tarimas_2 ?? 0) > 0 ? String(r.cantidad_tarimas_2) : "",
+      chismografo: r.chismografo ?? "",
+      nota: r.nota ?? "",
     });
     setEditandoId(r.id);
   }
@@ -246,6 +251,8 @@ export default function RegistrosEmbarquesPage() {
         cantidad_tarimas: cantidadTarimaNueva > 0 ? cantidadTarimaNueva : null,
         tipo_tarima_2: cantidadTarimaNueva2 > 0 ? edicion.tipoTarima2 : null,
         cantidad_tarimas_2: cantidadTarimaNueva2 > 0 ? cantidadTarimaNueva2 : null,
+        chismografo: edicion.chismografo.trim() || null,
+        nota: edicion.nota.trim() || null,
       })
       .eq("id", r.id);
 
@@ -341,6 +348,28 @@ export default function RegistrosEmbarquesPage() {
     const cajas = (r.remision_detalle ?? []).reduce((s: number, d: any) => s + Number(d.cantidad_cajas ?? 0), 0);
     const bins = (r.remision_detalle ?? []).reduce((s: number, d: any) => s + Number(d.cantidad_bins ?? 0), 0);
     return { cajas, bins };
+  }
+
+  // Desglose de la carga agrupado por calibre (y etiqueta, ej. Amarilla)
+  function desgloseDe(r: any) {
+    const mapa = new Map<string, { calibre: string; etiqueta: string; cajas: number; bins: number }>();
+    for (const d of r.remision_detalle ?? []) {
+      const cajas = Number(d.cantidad_cajas ?? 0);
+      const bins = Number(d.cantidad_bins ?? 0);
+      if (cajas <= 0 && bins <= 0) continue;
+      const calibre = d.calibres?.nombre ?? "";
+      const etiqueta = d.etiqueta_libre ?? "";
+      const k = `${calibre}|${etiqueta}`;
+      const prev = mapa.get(k) ?? { calibre, etiqueta, cajas: 0, bins: 0 };
+      prev.cajas += cajas;
+      prev.bins += bins;
+      mapa.set(k, prev);
+    }
+    return Array.from(mapa.values()).sort(
+      (a, b) =>
+        a.etiqueta.localeCompare(b.etiqueta) ||
+        a.calibre.localeCompare(b.calibre, undefined, { numeric: true })
+    );
   }
 
   const totalCajas = registros.reduce((s, r) => s + totalesDe(r).cajas, 0);
@@ -470,7 +499,16 @@ export default function RegistrosEmbarquesPage() {
                         "—"}
                     </td>
                     <td className="px-4 py-2 text-campo-800">{r.distribuidores?.nombre}</td>
-                    <td className="px-4 py-2 text-campo-800">{r.manifiesto ?? "—"}</td>
+                    <td className="px-4 py-2 text-campo-800">
+                      <button
+                        type="button"
+                        className="font-medium text-campo-700 underline decoration-dotted hover:text-campo-900"
+                        title="Ver desglose de la carga"
+                        onClick={() => setDesgloseId(desgloseId === r.id ? null : r.id)}
+                      >
+                        {r.manifiesto ?? "—"} {desgloseId === r.id ? "▴" : "▾"}
+                      </button>
+                    </td>
                     <td className="px-4 py-2 text-campo-600">{r.empaque}</td>
                     <td className="px-4 py-2 text-campo-800">{t.cajas.toFixed(0)}</td>
                     <td className="px-4 py-2 text-campo-800">{t.bins > 0 ? t.bins.toFixed(0) : "—"}</td>
@@ -494,6 +532,42 @@ export default function RegistrosEmbarquesPage() {
                       )}
                     </td>
                   </tr>
+                  {desgloseId === r.id && (
+                    <tr className="border-t border-campo-100 bg-campo-50/60">
+                      <td colSpan={9} className="px-4 py-3">
+                        <p className="mb-2 text-xs font-medium text-campo-600">
+                          Desglose de la carga · Manifiesto {r.manifiesto ?? "—"}
+                        </p>
+                        {desgloseDe(r).length === 0 ? (
+                          <p className="text-sm text-campo-400">Sin cantidades capturadas.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {desgloseDe(r).map((x) => (
+                              <div key={`${x.calibre}|${x.etiqueta}`} className="rounded-md border border-campo-200 bg-white px-3 py-2 text-sm text-campo-800">
+                                <span className="font-semibold">{x.cajas > 0 ? x.cajas.toFixed(0) : ""}</span>
+                                {x.cajas > 0 && <span> cajas de </span>}
+                                <span className="font-semibold">
+                                  {x.calibre || "—"}
+                                  {x.etiqueta ? ` ${x.etiqueta}` : ""}
+                                </span>
+                                {x.bins > 0 && <span className="text-campo-600"> · {x.bins.toFixed(0)} bins</span>}
+                              </div>
+                            ))}
+                            <div className="rounded-md border border-campo-300 bg-campo-100 px-3 py-2 text-sm font-semibold text-campo-900">
+                              Total: {t.cajas.toFixed(0)} cajas{t.bins > 0 ? ` · ${t.bins.toFixed(0)} bins` : ""}
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-campo-600 sm:grid-cols-2 md:grid-cols-4">
+                          <span>Camión: {r.caja_transporte || "—"}</span>
+                          <span>Placas: {r.placas || "—"}</span>
+                          <span>Chofer: {r.chofer || "—"}</span>
+                          <span>Chismógrafo: {r.chismografo || "—"}</span>
+                          {r.nota && <span className="sm:col-span-2 md:col-span-4">Nota: {r.nota}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {editandoId === r.id && edicion && (
                     <tr className="border-t border-campo-100 bg-campo-50">
                       <td colSpan={9} className="px-4 py-3">
@@ -594,6 +668,22 @@ export default function RegistrosEmbarquesPage() {
                               value={edicion.cantidadTarimas2}
                               onChange={(e) => setEdicion({ ...edicion, cantidadTarimas2: e.target.value })}
                               disabled={!edicion.tipoTarima2}
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Chismógrafo</label>
+                            <input
+                              className="input"
+                              value={edicion.chismografo}
+                              onChange={(e) => setEdicion({ ...edicion, chismografo: e.target.value })}
+                            />
+                          </div>
+                          <div className="sm:col-span-2 md:col-span-3">
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Nota</label>
+                            <input
+                              className="input"
+                              value={edicion.nota}
+                              onChange={(e) => setEdicion({ ...edicion, nota: e.target.value })}
                             />
                           </div>
                         </div>

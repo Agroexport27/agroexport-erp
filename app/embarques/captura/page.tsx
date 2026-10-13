@@ -27,6 +27,8 @@ export default function EmbarquesPage() {
   const [cajaTransporte, setCajaTransporte] = useState("");
   const [placas, setPlacas] = useState("");
   const [choferManifiesto, setChoferManifiesto] = useState("");
+  const [chismografo, setChismografo] = useState("");
+  const [nota, setNota] = useState("");
   const [tipoTarima, setTipoTarima] = useState("TARIMA CHEP");
   const [cantidadTarimas, setCantidadTarimas] = useState("");
   const [tipoTarima2, setTipoTarima2] = useState("");
@@ -200,6 +202,8 @@ export default function EmbarquesPage() {
         caja_transporte: cajaTransporte || null,
         placas: placas || null,
         chofer: choferManifiesto || null,
+        chismografo: chismografo.trim() || null,
+        nota: nota.trim() || null,
         tipo_tarima: cantidadTarimas ? tipoTarima : null,
         cantidad_tarimas: cantidadTarimas ? parseFloat(cantidadTarimas) : null,
         tipo_tarima_2: cantidadTarimas2 ? tipoTarima2 : null,
@@ -307,6 +311,8 @@ export default function EmbarquesPage() {
     setCajaTransporte("");
     setPlacas("");
     setChoferManifiesto("");
+    setChismografo("");
+    setNota("");
     setTipoTarima("TARIMA CHEP");
     setCantidadTarimas("");
     setTipoTarima2("");
@@ -377,6 +383,14 @@ export default function EmbarquesPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Chofer</label>
           <input className="input" value={choferManifiesto} onChange={(e) => setChoferManifiesto(e.target.value)} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Chismógrafo</label>
+          <input className="input" value={chismografo} onChange={(e) => setChismografo(e.target.value)} />
+        </div>
+        <div className="sm:col-span-2 md:col-span-3">
+          <label className="mb-1 block text-xs font-medium text-campo-600">Nota (sale debajo de las cajas empacadas)</label>
+          <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Tipo de tarima</label>

@@ -79,6 +79,8 @@ export function generarPdfManifiesto({
   cajaTransporte,
   placas,
   chofer,
+  chismografo,
+  nota,
   cultivoNombre,
   lineas,
   tarimas,
@@ -94,6 +96,8 @@ export function generarPdfManifiesto({
   cajaTransporte: string;
   placas: string;
   chofer: string;
+  chismografo?: string;
+  nota?: string;
   cultivoNombre: string;
   lineas: LineaManifiesto[];
   tarimas?: TarimaManifiesto[];
@@ -249,7 +253,17 @@ export function generarPdfManifiesto({
 
   doc.rect(marginX, tableTop, tableW, tableBottom - tableTop);
 
-  y = filaY + 6;
+  y = filaY + 5;
+
+  // ---- NOTA (debajo de la última fila de cajas empacadas) ----
+  if (nota && nota.trim()) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    const notaLineas = doc.splitTextToSize(`NOTA: ${nota.trim().toUpperCase()}`, tableW);
+    doc.text(notaLineas, marginX, y);
+    y += notaLineas.length * 4;
+  }
+  y += 2;
 
   // ---- Bloque de retorno/transporte, DEBAJO de la tabla ----
   doc.setFontSize(8);
@@ -263,6 +277,8 @@ export function generarPdfManifiesto({
   doc.text(`PLACAS: ${placas || "-"}`, marginX, y);
   y += 4;
   doc.text(`CHOFER : ${chofer || "-"}`, marginX, y);
+  y += 4;
+  doc.text(`CHISMOGRAFO: ${chismografo && chismografo.trim() ? chismografo.trim() : "-"}`, marginX, y);
   y += 6;
 
   // ---- Texto legal ----
