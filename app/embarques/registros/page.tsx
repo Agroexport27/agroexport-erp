@@ -562,7 +562,7 @@ export default function RegistrosEmbarquesPage() {
                           <span>Camión: {r.caja_transporte || "—"}</span>
                           <span>Placas: {r.placas || "—"}</span>
                           <span>Chofer: {r.chofer || "—"}</span>
-                          <span>Chismógrafo: {r.chismografo || "—"}</span>
+                          <span>Termógrafo: {r.chismografo || "—"}</span>
                           {r.nota && <span className="sm:col-span-2 md:col-span-4">Nota: {r.nota}</span>}
                         </div>
                       </td>
@@ -671,7 +671,7 @@ export default function RegistrosEmbarquesPage() {
                             />
                           </div>
                           <div>
-                            <label className="mb-1 block text-xs font-medium text-campo-600">Chismógrafo</label>
+                            <label className="mb-1 block text-xs font-medium text-campo-600">Termógrafo</label>
                             <input
                               className="input"
                               value={edicion.chismografo}

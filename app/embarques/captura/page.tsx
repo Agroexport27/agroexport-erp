@@ -385,7 +385,7 @@ export default function EmbarquesPage() {
           <input className="input" value={choferManifiesto} onChange={(e) => setChoferManifiesto(e.target.value)} />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-campo-600">Chismógrafo</label>
+          <label className="mb-1 block text-xs font-medium text-campo-600">Termógrafo</label>
           <input className="input" value={chismografo} onChange={(e) => setChismografo(e.target.value)} />
         </div>
         <div className="sm:col-span-2 md:col-span-3">

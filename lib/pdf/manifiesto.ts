@@ -278,7 +278,7 @@ export function generarPdfManifiesto({
   y += 4;
   doc.text(`CHOFER : ${chofer || "-"}`, marginX, y);
   y += 4;
-  doc.text(`CHISMOGRAFO: ${chismografo && chismografo.trim() ? chismografo.trim() : "-"}`, marginX, y);
+  doc.text(`TERMOGRAFO: ${chismografo && chismografo.trim() ? chismografo.trim() : "-"}`, marginX, y);
   y += 6;
 
   // ---- Texto legal ----
