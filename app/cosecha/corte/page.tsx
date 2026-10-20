@@ -202,14 +202,14 @@ export default function CorteDiarioPage() {
         for (const c of calibresCaja) {
           const pallets = parseFloat(r.pallets[c.id] || "0") || 0;
           if (pallets > 0) {
-            const cajas = pallets * cajasPorPalletEfectivo(distId, c.id);
+            const cajas = Math.round(pallets * cajasPorPalletEfectivo(distId, c.id));
             totalesPallet[c.id] = (totalesPallet[c.id] ?? 0) + cajas;
           }
         }
         for (const c of calibresBin) {
           const bins = parseFloat(r.bins[c.id] || "0") || 0;
           if (bins > 0) {
-            const cajas = bins * (c.cajasPorBin ?? 0);
+            const cajas = Math.round(bins * (c.cajasPorBin ?? 0));
             totalesBin[c.id] = (totalesBin[c.id] ?? 0) + cajas;
           }
         }
@@ -257,7 +257,8 @@ export default function CorteDiarioPage() {
             calibre_id: c.id,
             tipo_unidad: "pallet",
             cantidad_unidades: pallets,
-            cajas: pallets * rate,
+            // Se guarda redondeado a cajas enteras: lo mismo que se ve al capturar.
+            cajas: Math.round(pallets * rate),
             // 8COAM (8 Costco de Sandía Mini Amarilla) siempre es Amarilla:
             // así usa su receta de materiales (malla amarilla) y se cuenta
             // como Amarilla en el Acumulado.
@@ -276,7 +277,7 @@ export default function CorteDiarioPage() {
             calibre_id: c.id,
             tipo_unidad: "bins",
             cantidad_unidades: bins,
-            cajas: bins * (c.cajasPorBin ?? 0),
+            cajas: Math.round(bins * (c.cajasPorBin ?? 0)),
             clasificacion: clasificacionEfectiva,
           });
         }
@@ -511,7 +512,7 @@ export default function CorteDiarioPage() {
                         {calibresCaja.map((c) => {
                           const totalRenglones = renglones.reduce((s, r) => {
                             const pallets = parseFloat(r.pallets[c.id] || "0") || 0;
-                            return s + pallets * cajasPorPalletEfectivo(dist.id, c.id);
+                            return s + Math.round(pallets * cajasPorPalletEfectivo(dist.id, c.id));
                           }, 0);
                           return (
                             <td key={c.id} className="px-1 py-1 text-center text-campo-700">
