@@ -11,6 +11,15 @@ const CAJA_POR_DISTRIBUIDOR: Record<string, string> = {
   Nacional: "CAJA LOLITA",
 };
 
+// Robinson Fresh en PEPINO: otra dirección, otra caja y la etiqueta solo
+// se imprime en las presentaciones RPC.
+const ROBINSON_PEPINO_DIRECCION = "C.H. ROBINSON WORLDWIDE, INC. 245 EMMA ST";
+const ROBINSON_PEPINO_CIUDAD = "NOGALES, AZ, 85621";
+
+function esRobinsonPepino(distribuidor: string, cultivoNombre: string): boolean {
+  return /robinson/i.test(distribuidor) && /pepino/i.test(cultivoNombre);
+}
+
 const PESO_POR_CAJA_LBS = 35; // fijo para Sandia Mini, todos los calibres
 
 // REG TRANSP. nunca cambia -- se imprime siempre este valor sin importar
@@ -110,6 +119,12 @@ export function generarPdfManifiesto({
   const [anio, mes, dia] = fecha.split("-");
   const MESES = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
   const mesTexto = MESES[parseInt(mes, 10) - 1] ?? mes;
+
+  const robPepino = esRobinsonPepino(distribuidor, cultivoNombre);
+  if (robPepino) {
+    distribuidorDireccion = ROBINSON_PEPINO_DIRECCION;
+    distribuidorCiudad = ROBINSON_PEPINO_CIUDAD;
+  }
 
   const totalCajas = lineas.reduce((s, l) => s + l.cajas, 0);
 
@@ -221,16 +236,18 @@ export function generarPdfManifiesto({
   doc.setFont("helvetica", "normal");
   for (const l of lineas) {
     doc.line(marginX, filaY, marginX + tableW, filaY);
-    const caja = CAJA_POR_DISTRIBUIDOR[distribuidor] ?? "CAJA";
+    const caja = robPepino ? "CAJA ROBINSON" : CAJA_POR_DISTRIBUIDOR[distribuidor] ?? "CAJA";
     const peso = pesoPorCaja(cultivoNombre, l.calibreNombre);
     const nombreLinea = l.variedad ? `${cultivoNombre} ${l.variedad}` : cultivoNombre;
     const desc = `${nombreLinea.toUpperCase()} CALIBRE ${l.calibreNombre} ${caja}, ${peso} LBS`;
-    const desc2 = `ETIQUETA ${distribuidor.toUpperCase()}`;
+    // Robinson/Pepino: solo las RPC llevan etiqueta
+    const llevaEtiqueta = !robPepino || /rpc/i.test(l.calibreNombre);
+    const desc2 = llevaEtiqueta ? `ETIQUETA ${distribuidor.toUpperCase()}` : "";
     doc.setFontSize(8);
     doc.text(String(l.cajas), marginX + colCantidadW / 2, filaY + 4, { align: "center" });
     doc.text(desc, marginX + colCantidadW + colDescW / 2, filaY + 4, { align: "center" });
-    doc.text(desc2, marginX + colCantidadW + colDescW / 2, filaY + 4 + 4, { align: "center" });
-    filaY += rowH * 2;
+    if (desc2) doc.text(desc2, marginX + colCantidadW + colDescW / 2, filaY + 4 + 4, { align: "center" });
+    filaY += llevaEtiqueta ? rowH * 2 : rowH;
   }
   for (let i = 0; i < numFilasVacias; i++) {
     doc.line(marginX, filaY, marginX + tableW, filaY);
