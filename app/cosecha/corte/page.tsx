@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { redondearConsumoMaterial } from "@/lib/utils/redondearMaterial";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
@@ -308,7 +309,7 @@ export default function CorteDiarioPage() {
         .select("id, distribuidor_id, calibre_id, clasificacion, receta_empaque(material_id, cantidad_por_caja)")
         .in("clasificacion", clasificacionesUsadas);
 
-      const consumoPorMaterial: Record<string, number> = {};
+      let consumoPorMaterial: Record<string, number> = {};
       let algunoSinReceta = false;
       for (const f of filasConMaterial) {
         const tipo = (tiposEmpaque ?? []).find(
@@ -325,6 +326,12 @@ export default function CorteDiarioPage() {
           consumoPorMaterial[r.material_id] =
             (consumoPorMaterial[r.material_id] ?? 0) + r.cantidad_por_caja * f.cajas;
         }
+      }
+
+      // Material en piezas enteras (solo el fleje lleva decimales)
+      consumoPorMaterial = await redondearConsumoMaterial(supabase, consumoPorMaterial);
+      for (const id of Object.keys(consumoPorMaterial)) {
+        if (!(consumoPorMaterial[id] > 0)) delete consumoPorMaterial[id];
       }
 
       const movimientos = Object.entries(consumoPorMaterial).map(([materialId, cantidad]) => ({

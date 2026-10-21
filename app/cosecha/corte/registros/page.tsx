@@ -6,6 +6,7 @@ import { generarExcelCorte } from "@/lib/excel/corte";
 import { generarPdfCorte } from "@/lib/pdf/corte";
 import { generarExcelResumenCorte } from "@/lib/excel/resumenCorte";
 import { generarPdfResumenCorte, generarPdfResumenCorteUnDistribuidor } from "@/lib/pdf/resumenCorte";
+import { redondearConsumoMaterial } from "@/lib/utils/redondearMaterial";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
@@ -127,7 +128,7 @@ export default function RegistrosCortePage() {
         consumo[rr.material_id] = (consumo[rr.material_id] ?? 0) + rr.cantidad_por_caja * Number(f.cajas);
       }
     }
-    return consumo;
+    return redondearConsumoMaterial(supabase, consumo);
   }
 
   async function recalcularStock(materialId: string, campoId: string) {
@@ -180,7 +181,7 @@ export default function RegistrosCortePage() {
       return;
     }
     const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
-    const cajasNuevas = cantidad * tasa;
+    const cajasNuevas = Math.round(cantidad * tasa);
     const { error } = await supabase
       .from("corte_diario")
       .update({ cantidad_unidades: cantidad, cajas: cajasNuevas })
@@ -272,7 +273,7 @@ export default function RegistrosCortePage() {
       }
       if (cantidad !== Number(r.cantidad_unidades)) {
         const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
-        actualizaciones.push({ id: r.id, cantidad, cajasNuevas: cantidad * tasa, filaOriginal: r });
+        actualizaciones.push({ id: r.id, cantidad, cajasNuevas: Math.round(cantidad * tasa), filaOriginal: r });
       }
     }
 
