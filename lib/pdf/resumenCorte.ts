@@ -23,7 +23,24 @@ function tamanoDeCalibre(nombreCalibre: string): string | null {
   return null;
 }
 
-function construirResumenTamanos(filas: FilaCorteDetalle[]) {
+function construirResumenTamanos(filas: FilaCorteDetalle[], esPepino = false, calibresCaja: CalibreCol[] = []) {
+  if (esPepino) {
+    // Pepino: % por cada calibre/presentación de pepino (no tamaños de sandía)
+    const cajasPorCalibre: Record<string, number> = {};
+    let total = 0;
+    for (const f of filas) {
+      if (f.tipoUnidad !== "pallet") continue;
+      cajasPorCalibre[f.calibreId] = (cajasPorCalibre[f.calibreId] ?? 0) + f.cajas;
+      total += f.cajas;
+    }
+    return calibresCaja
+      .filter((c) => (cajasPorCalibre[c.id] ?? 0) > 0)
+      .map((c) => ({
+        tamano: c.nombre,
+        cajas: cajasPorCalibre[c.id] ?? 0,
+        porcentaje: total > 0 ? ((cajasPorCalibre[c.id] ?? 0) / total) * 100 : 0,
+      }));
+  }
   const cajasPorTamano: Record<string, number> = {};
   let totalConTamano = 0;
   for (const f of filas) {
@@ -47,7 +64,8 @@ function dibujarTablaDistribuidor(
   distribuidor: string,
   filas: FilaCorteDetalle[],
   calibresCaja: CalibreCol[],
-  calibresBin: CalibreCol[]
+  calibresBin: CalibreCol[],
+  esPepino = false
 ) {
   doc.setFontSize(13);
   doc.text("Agroexport de Sonora", 14, 14);
@@ -114,12 +132,12 @@ function dibujarTablaDistribuidor(
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  const resumenTamanos = construirResumenTamanos(filas);
+  const resumenTamanos = construirResumenTamanos(filas, esPepino, calibresCaja);
   doc.setFontSize(10);
-  doc.text("% por tamaño", 14, y);
+  doc.text(esPepino ? "% por calibre" : "% por tamaño", 14, y);
   autoTable(doc, {
     startY: y + 3,
-    head: [["Tamaño", "Cajas", "%"]],
+    head: [[esPepino ? "Calibre" : "Tamaño", "Cajas", "%"]],
     body: resumenTamanos.map((t) => [t.tamano, t.cajas > 0 ? t.cajas.toFixed(0) : "-", `${t.porcentaje.toFixed(1)}%`]),
     styles: { fontSize: 8 },
     headStyles: { fillColor: [92, 140, 58] },
@@ -133,21 +151,23 @@ export function generarPdfResumenCorte({
   filas,
   calibresCaja,
   calibresBin,
+  esPepino = false,
 }: {
   fecha: string;
   campo: string;
   filas: FilaCorteDetalle[];
   calibresCaja: CalibreCol[];
   calibresBin: CalibreCol[];
+  esPepino?: boolean;
 }) {
   const doc = new jsPDF({ orientation: "landscape" });
 
-  dibujarTablaDistribuidor(doc, campo, fecha, "RESUMEN GENERAL — TODOS LOS DISTRIBUIDORES", filas, calibresCaja, calibresBin);
+  dibujarTablaDistribuidor(doc, campo, fecha, "RESUMEN GENERAL — TODOS LOS DISTRIBUIDORES", filas, calibresCaja, calibresBin, esPepino);
 
   const distribuidores = Array.from(new Set(filas.map((f) => f.distribuidor)));
   for (const dist of distribuidores) {
     doc.addPage();
-    dibujarTablaDistribuidor(doc, campo, fecha, dist, filas.filter((f) => f.distribuidor === dist), calibresCaja, calibresBin);
+    dibujarTablaDistribuidor(doc, campo, fecha, dist, filas.filter((f) => f.distribuidor === dist), calibresCaja, calibresBin, esPepino);
   }
 
   doc.save(`corte_${campo.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
@@ -162,6 +182,7 @@ export function generarPdfResumenCorteUnDistribuidor({
   filas,
   calibresCaja,
   calibresBin,
+  esPepino = false,
 }: {
   fecha: string;
   campo: string;
@@ -169,8 +190,9 @@ export function generarPdfResumenCorteUnDistribuidor({
   filas: FilaCorteDetalle[];
   calibresCaja: CalibreCol[];
   calibresBin: CalibreCol[];
+  esPepino?: boolean;
 }) {
   const doc = new jsPDF({ orientation: "landscape" });
-  dibujarTablaDistribuidor(doc, campo, fecha, distribuidor, filas, calibresCaja, calibresBin);
+  dibujarTablaDistribuidor(doc, campo, fecha, distribuidor, filas, calibresCaja, calibresBin, esPepino);
   doc.save(`corte_${distribuidor.replace(/\s+/g, "_")}_${campo.replace(/\s+/g, "_")}_${fecha}_${Date.now()}.pdf`);
 }

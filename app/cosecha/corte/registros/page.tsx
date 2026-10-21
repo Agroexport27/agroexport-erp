@@ -401,6 +401,7 @@ export default function RegistrosCortePage() {
       filas: detalleDeGrupo(g),
       calibresCaja,
       calibresBin,
+      esPepino: /pepino/i.test(String(g.cultivo ?? "")),
     });
   }
   function descargarResumenPdf(g: any) {
@@ -411,6 +412,7 @@ export default function RegistrosCortePage() {
       filas: detalleDeGrupo(g),
       calibresCaja,
       calibresBin,
+      esPepino: /pepino/i.test(String(g.cultivo ?? "")),
     });
   }
   function descargarPdfDistribuidor(g: any, distribuidor: string) {
@@ -423,6 +425,7 @@ export default function RegistrosCortePage() {
       filas: filasDist,
       calibresCaja,
       calibresBin,
+      esPepino: /pepino/i.test(String(g.cultivo ?? "")),
     });
   }
 

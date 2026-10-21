@@ -25,7 +25,24 @@ function tamanoDeCalibre(nombreCalibre: string): string | null {
   return null;
 }
 
-function construirResumenTamanos(filas: FilaCorteDetalle[]) {
+function construirResumenTamanos(filas: FilaCorteDetalle[], esPepino = false, calibresCaja: CalibreCol[] = []) {
+  if (esPepino) {
+    // Pepino: % por cada calibre/presentación de pepino (no tamaños de sandía)
+    const cajasPorCalibre: Record<string, number> = {};
+    let total = 0;
+    for (const f of filas) {
+      if (f.tipoUnidad !== "pallet") continue;
+      cajasPorCalibre[f.calibreId] = (cajasPorCalibre[f.calibreId] ?? 0) + f.cajas;
+      total += f.cajas;
+    }
+    return calibresCaja
+      .filter((c) => (cajasPorCalibre[c.id] ?? 0) > 0)
+      .map((c) => ({
+        tamano: c.nombre,
+        cajas: cajasPorCalibre[c.id] ?? 0,
+        porcentaje: total > 0 ? ((cajasPorCalibre[c.id] ?? 0) / total) * 100 : 0,
+      }));
+  }
   const cajasPorTamano: Record<string, number> = {};
   let totalConTamano = 0;
   for (const f of filas) {
@@ -47,7 +64,8 @@ function construirHojaDistribuidor(
   distribuidor: string,
   filas: FilaCorteDetalle[],
   calibresCaja: CalibreCol[],
-  calibresBin: CalibreCol[]
+  calibresBin: CalibreCol[],
+  esPepino = false
 ) {
   const cuadros = Array.from(new Set(filas.map((f) => f.cuadro))).sort();
 
@@ -93,10 +111,10 @@ function construirHojaDistribuidor(
     }
   }
 
-  const resumenTamanos = construirResumenTamanos(filas);
+  const resumenTamanos = construirResumenTamanos(filas, esPepino, calibresCaja);
   filasHoja.push([]);
-  filasHoja.push(["% POR TAMAÑO"]);
-  filasHoja.push(["Tamaño", "Cajas", "%"]);
+  filasHoja.push([esPepino ? "% POR CALIBRE" : "% POR TAMAÑO"]);
+  filasHoja.push([esPepino ? "Calibre" : "Tamaño", "Cajas", "%"]);
   for (const t of resumenTamanos) {
     filasHoja.push([t.tamano, t.cajas || "", `${t.porcentaje.toFixed(1)}%`]);
   }
@@ -110,23 +128,25 @@ export function generarExcelResumenCorte({
   filas,
   calibresCaja,
   calibresBin,
+  esPepino = false,
 }: {
   fecha: string;
   campo: string;
   filas: FilaCorteDetalle[];
   calibresCaja: CalibreCol[];
   calibresBin: CalibreCol[];
+  esPepino?: boolean;
 }) {
   const libro = XLSX.utils.book_new();
 
   // Hoja resumen general (todos los distribuidores juntos)
-  const hojaGeneral = construirHojaDistribuidor("TODOS", filas, calibresCaja, calibresBin);
+  const hojaGeneral = construirHojaDistribuidor("TODOS", filas, calibresCaja, calibresBin, esPepino);
   XLSX.utils.book_append_sheet(libro, hojaGeneral, "RESUMEN");
 
   const distribuidores = Array.from(new Set(filas.map((f) => f.distribuidor)));
   for (const dist of distribuidores) {
     const filasDist = filas.filter((f) => f.distribuidor === dist);
-    const hoja = construirHojaDistribuidor(dist, filasDist, calibresCaja, calibresBin);
+    const hoja = construirHojaDistribuidor(dist, filasDist, calibresCaja, calibresBin, esPepino);
     XLSX.utils.book_append_sheet(libro, hoja, dist.slice(0, 31));
   }
 
