@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { generarExcelAcumulado } from "@/lib/excel/acumulado";
+import { generarExcelAcumuladoPepino } from "@/lib/excel/acumuladoPepino";
 import { generarExcelAcumuladoSandia } from "@/lib/excel/acumuladoSandia";
 import { generarPdfAcumulado } from "@/lib/pdf/acumulado";
 
@@ -516,6 +517,16 @@ export default function AcumuladoCosechaPage() {
         registros,
         cuadrosPlantados,
         cajasManualPorCorte,
+        campos,
+        cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "",
+      }).catch((e) => setError(e?.message ?? "No se pudo generar el Excel."));
+      return;
+    }
+    // Pepino: mismo estilo que el de sandía, con cajas 36s, calibres y por ha.
+    if (esPepino) {
+      generarExcelAcumuladoPepino({
+        registros,
+        cuadrosPlantados,
         campos,
         cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "",
       }).catch((e) => setError(e?.message ?? "No se pudo generar el Excel."));

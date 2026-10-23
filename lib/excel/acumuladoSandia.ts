@@ -7,7 +7,7 @@
 // Se usa ExcelJS (y no xlsx) porque necesitamos colores, bordes, celdas
 // combinadas y fórmulas vivas como en el archivo de ejemplo.
 
-type Registro = {
+export type Registro = {
   fecha: string;
   cajas: number | string | null;
   tipo_unidad?: string | null;
@@ -17,18 +17,18 @@ type Registro = {
   calibres?: { nombre?: string } | null;
 };
 
-type CuadroPlantado = { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number };
+export type CuadroPlantado = { cuadroId: string; nombre: string; campoId: string; variedad: string; hectareas: number };
 
-const VERDE = "FFEAF1DD";
-const AZUL = "FFC6D9F0";
-const AZUL_OSC = "FF95B3D7";
-const NARANJA = "FFFDE9D9";
-const AMARILLO = "FFFFFF00";
+export const VERDE = "FFEAF1DD";
+export const AZUL = "FFC6D9F0";
+export const AZUL_OSC = "FF95B3D7";
+export const NARANJA = "FFFDE9D9";
+export const AMARILLO = "FFFFFF00";
 
 const MEDIO = { style: "medium" as const };
 const FINO = { style: "thin" as const };
 
-function letra(n: number): string {
+export function letra(n: number): string {
   let s = "";
   while (n > 0) {
     const r = (n - 1) % 26;
@@ -38,22 +38,22 @@ function letra(n: number): string {
   return s;
 }
 
-function aFecha(iso: string): Date {
+export function aFecha(iso: string): Date {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d));
 }
-function aIso(d: Date): string {
+export function aIso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
-function sumarDias(d: Date, n: number): Date {
+export function sumarDias(d: Date, n: number): Date {
   return new Date(d.getTime() + n * 86400000);
 }
 
-function esBins(r: Registro) {
+export function esBins(r: Registro) {
   return (r.tipo_unidad ?? "") === "bins";
 }
 
-function ordenNumerico(a: string, b: string) {
+export function ordenNumerico(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
@@ -115,7 +115,7 @@ function evaluar(ws: any, formula: string, memo: Map<string, number>): number {
   }
 }
 
-function guardarResultados(libro: any) {
+export function guardarResultados(libro: any) {
   libro.eachSheet((ws: any) => {
     const memo = new Map<string, number>();
     const pendientes: { cell: any; formula: string }[] = [];
@@ -135,7 +135,7 @@ function guardarResultados(libro: any) {
   });
 }
 
-function estilo(
+export function estilo(
   c: any,
   o: {
     size?: number;
@@ -541,7 +541,7 @@ export async function generarExcelAcumuladoSandia({
 }
 
 // Hoja "x DISTRIB": consolidado por día — cajas por campo, por distribuidor y bins.
-function hojaDistribuidor(
+export function hojaDistribuidor(
   libro: any,
   registros: Registro[],
   camposOrden: { id: string; nombre: string }[],
