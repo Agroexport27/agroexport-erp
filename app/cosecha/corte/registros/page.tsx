@@ -32,6 +32,12 @@ export default function RegistrosCortePage() {
 
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [edicionCantidad, setEdicionCantidad] = useState("");
+  const [edicionFecha, setEdicionFecha] = useState("");
+  const [edicionCuadroId, setEdicionCuadroId] = useState("");
+  const [edicionDistId, setEdicionDistId] = useState("");
+  const [edicionCalibreId, setEdicionCalibreId] = useState("");
+  const [edicionClasif, setEdicionClasif] = useState("Convencional");
+  const [todosCuadros, setTodosCuadros] = useState<any[]>([]);
 
   const [grupoEditando, setGrupoEditando] = useState<string | null>(null);
   const [edicionesGrupo, setEdicionesGrupo] = useState<Record<string, string>>({});
@@ -54,6 +60,11 @@ export default function RegistrosCortePage() {
       .select("id, nombre")
       .order("nombre")
       .then(({ data }) => setCultivos((data ?? []).map((c: any) => ({ id: c.id, label: c.nombre }))));
+    supabase
+      .from("cuadros")
+      .select("id, nombre, campo_id, cultivo_id, orden, campos(nombre)")
+      .order("orden")
+      .then(({ data }) => setTodosCuadros(data ?? []));
     supabase
       .from("calibres")
       .select("id, nombre, cultivo_id, cajas_por_pallet, cajas_por_bin, orden")
@@ -78,7 +89,7 @@ export default function RegistrosCortePage() {
     let query = supabase
       .from("corte_diario")
       .select(
-        "id, fecha, campo_id, distribuidor_id, calibre_id, cultivo_id, clasificacion, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
+        "id, fecha, campo_id, cuadro_id, distribuidor_id, calibre_id, cultivo_id, clasificacion, tipo_unidad, cantidad_unidades, cajas, campos(nombre), cuadros(nombre), cultivos(nombre), distribuidores(nombre), calibres(nombre)"
       )
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin)
@@ -170,8 +181,32 @@ export default function RegistrosCortePage() {
 
   function empezarEdicion(r: any) {
     cancelarEdicionGrupo();
+    setError(null);
     setEditandoId(r.id);
     setEdicionCantidad(String(r.cantidad_unidades));
+    setEdicionFecha(r.fecha);
+    setEdicionCuadroId(r.cuadro_id ?? "");
+    setEdicionDistId(r.distribuidor_id);
+    setEdicionCalibreId(r.calibre_id);
+    setEdicionClasif(r.clasificacion ?? "Convencional");
+  }
+
+  // Cuadros que se pueden elegir al editar: los del mismo cultivo del renglón.
+  function cuadrosParaEditar(r: any) {
+    return todosCuadros.filter((c) => c.cultivo_id === r.cultivo_id);
+  }
+
+  // Calibres que se pueden elegir al editar (mismo catálogo que Corte diario).
+  function calibresParaEditar(r: any) {
+    const idBase = idCultivoParaCalibres(r.cultivo_id, r.cultivos?.nombre ?? "");
+    return calibres.filter((c) => c.cultivo_id === idBase);
+  }
+
+  // Si el calibre nuevo no maneja el tipo actual (pallet/bins), se cambia al otro.
+  function tipoUnidadPara(distId: string, calibreId: string, tipoActual: string): string {
+    if (tasaEfectiva(distId, calibreId, tipoActual) > 0) return tipoActual;
+    const otro = tipoActual === "pallet" ? "bins" : "pallet";
+    return tasaEfectiva(distId, calibreId, otro) > 0 ? otro : tipoActual;
   }
 
   async function guardarEdicion(r: any) {
@@ -180,26 +215,70 @@ export default function RegistrosCortePage() {
       setError("Cantidad inválida.");
       return;
     }
-    const tasa = tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad);
+    if (!edicionFecha || !edicionCuadroId || !edicionDistId || !edicionCalibreId) {
+      setError("Falta fecha, cuadro, distribuidor o calibre.");
+      return;
+    }
+    const cuadro = todosCuadros.find((c) => c.id === edicionCuadroId);
+    const calNuevo = calibres.find((c) => c.id === edicionCalibreId);
+    const campoNuevo = cuadro?.campo_id ?? r.campo_id;
+    const clasifNueva =
+      String(calNuevo?.nombre ?? "").trim().toUpperCase() === "8COAM" ? "Amarilla" : edicionClasif;
+    const tipoNuevo = tipoUnidadPara(edicionDistId, edicionCalibreId, r.tipo_unidad);
+    const tasa = tasaEfectiva(edicionDistId, edicionCalibreId, tipoNuevo);
     const cajasNuevas = Math.round(cantidad * tasa);
+
+    const filaNueva = {
+      ...r,
+      fecha: edicionFecha,
+      campo_id: campoNuevo,
+      cuadro_id: edicionCuadroId,
+      distribuidor_id: edicionDistId,
+      calibre_id: edicionCalibreId,
+      clasificacion: clasifNueva,
+      tipo_unidad: tipoNuevo,
+      cantidad_unidades: cantidad,
+      cajas: cajasNuevas,
+    };
+
     const { error } = await supabase
       .from("corte_diario")
-      .update({ cantidad_unidades: cantidad, cajas: cajasNuevas })
+      .update({
+        fecha: edicionFecha,
+        campo_id: campoNuevo,
+        cuadro_id: edicionCuadroId,
+        distribuidor_id: edicionDistId,
+        calibre_id: edicionCalibreId,
+        clasificacion: clasifNueva,
+        tipo_unidad: tipoNuevo,
+        cantidad_unidades: cantidad,
+        cajas: cajasNuevas,
+      })
       .eq("id", r.id);
     if (error) {
       setError(error.message);
       return;
     }
-    if (cajasNuevas !== Number(r.cajas)) {
+    // El material se revierte con los datos ORIGINALES (fecha/campo/receta) y
+    // se vuelve a descontar con los NUEVOS; si no cambió nada que afecte el
+    // material, se omite para no ensuciar el kárdex.
+    const cambioMaterial =
+      cajasNuevas !== Number(r.cajas) ||
+      edicionFecha !== r.fecha ||
+      campoNuevo !== r.campo_id ||
+      edicionDistId !== r.distribuidor_id ||
+      edicionCalibreId !== r.calibre_id ||
+      clasifNueva !== (r.clasificacion ?? "Convencional");
+    if (cambioMaterial) {
       await ajustarMaterialPorFilas(
         [r],
         "entrada",
         `Reversión por editar corte (${r.calibres?.nombre ?? ""}, ${r.fecha})`
       );
       await ajustarMaterialPorFilas(
-        [{ ...r, cajas: cajasNuevas }],
+        [filaNueva],
         "salida",
-        `Consumo actualizado por editar corte (${r.calibres?.nombre ?? ""}, ${r.fecha})`
+        `Consumo actualizado por editar corte (${calNuevo?.nombre ?? ""}, ${edicionFecha})`
       );
     }
     setEditandoId(null);
@@ -588,29 +667,76 @@ export default function RegistrosCortePage() {
                   }
                   return editandoId === r.id ? (
                     <tr key={r.id} className="border-t border-campo-50 bg-campo-50">
-                      <td className="px-4 py-1 text-campo-800">{r.cuadros?.nombre}</td>
-                      <td className="px-4 py-1 text-campo-800">{r.distribuidores?.nombre}</td>
-                      <td className="px-4 py-1 text-campo-800">{r.calibres?.nombre}</td>
-                      <td className="px-4 py-1 text-campo-600 capitalize">{r.tipo_unidad}</td>
-                      <td className="px-2 py-1">
-                        <input
-                          type="number"
-                          step="any"
-                          className="input w-20"
-                          value={edicionCantidad}
-                          onChange={(e) => setEdicionCantidad(e.target.value)}
-                        />
-                      </td>
-                      <td className="px-4 py-1 text-campo-600">
-                        {(parseFloat(edicionCantidad || "0") * tasaEfectiva(r.distribuidor_id, r.calibre_id, r.tipo_unidad)).toFixed(0)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-1 text-right">
-                        <button className="btn-secondary mr-1" onClick={() => guardarEdicion(r)}>
-                          Guardar
-                        </button>
-                        <button className="btn-secondary" onClick={() => setEditandoId(null)}>
-                          Cancelar
-                        </button>
+                      <td colSpan={7} className="px-4 py-2">
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+                          <div>
+                            <label className="mb-1 block text-xs text-campo-600">Fecha</label>
+                            <input type="date" className="input" value={edicionFecha} onChange={(e) => setEdicionFecha(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-campo-600">Cuadro</label>
+                            <select className="input" value={edicionCuadroId} onChange={(e) => setEdicionCuadroId(e.target.value)}>
+                              {cuadrosParaEditar(r).map((c: any) => (
+                                <option key={c.id} value={c.id}>{c.campos?.nombre} — {c.nombre}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-campo-600">Distribuidor</label>
+                            <select className="input" value={edicionDistId} onChange={(e) => setEdicionDistId(e.target.value)}>
+                              {distribuidores.map((d) => (
+                                <option key={d.id} value={d.id}>{d.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-campo-600">Calibre</label>
+                            <select className="input" value={edicionCalibreId} onChange={(e) => setEdicionCalibreId(e.target.value)}>
+                              {calibresParaEditar(r).map((c: any) => (
+                                <option key={c.id} value={c.id}>{c.nombre}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-campo-600">Clasificación</label>
+                            <select className="input" value={edicionClasif} onChange={(e) => setEdicionClasif(e.target.value)}>
+                              <option value="Convencional">Convencional</option>
+                              <option value="Orgánico">Orgánico</option>
+                              <option value="Amarilla">Amarilla</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-campo-600">
+                              {tipoUnidadPara(edicionDistId, edicionCalibreId, r.tipo_unidad) === "bins" ? "Bins" : "Pallets"}
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              className="input"
+                              value={edicionCantidad}
+                              onChange={(e) => setEdicionCantidad(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-xs text-campo-600">
+                            Cajas:{" "}
+                            {Math.round(
+                              parseFloat(edicionCantidad || "0") *
+                                tasaEfectiva(
+                                  edicionDistId,
+                                  edicionCalibreId,
+                                  tipoUnidadPara(edicionDistId, edicionCalibreId, r.tipo_unidad)
+                                )
+                            )}
+                          </span>
+                          <button className="btn-primary text-xs" onClick={() => guardarEdicion(r)}>
+                            Guardar
+                          </button>
+                          <button className="btn-secondary text-xs" onClick={() => setEditandoId(null)}>
+                            Cancelar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ) : (
