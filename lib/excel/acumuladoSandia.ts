@@ -548,12 +548,14 @@ export function hojaDistribuidor(
   cuadrosPlantados: CuadroPlantado[],
   cicloLabel: string,
   inicio: Date,
-  dias: number
+  dias: number,
+  // Pepino: Nacional cuenta como un distribuidor más (en sandía va aparte).
+  nacionalComoDistribuidor = false
 ) {
   const ws = libro.addWorksheet("x DISTRIB", { views: [{ showGridLines: false, state: "frozen", ySplit: 4 }] });
   const nC = camposOrden.length;
   const nombresDist = Array.from(
-    new Set(registros.map((r) => r.distribuidores?.nombre).filter((n) => n && n !== "Nacional") as string[])
+    new Set(registros.map((r) => r.distribuidores?.nombre).filter((n) => n && (nacionalComoDistribuidor || n !== "Nacional")) as string[])
   ).sort();
   const nD = Math.max(nombresDist.length, 1);
 
@@ -625,7 +627,7 @@ export function hojaDistribuidor(
     const ci = camposOrden.findIndex((c) => c.id === r.cuadros?.campo_id);
     if (ci >= 0) d.campo[ci] += cajas;
     const nombre = r.distribuidores?.nombre ?? "";
-    if (nombre === "Nacional") d.nac += cajas;
+    if (nombre === "Nacional" && !nacionalComoDistribuidor) d.nac += cajas;
     else {
       const di = nombresDist.indexOf(nombre);
       if (di >= 0) d.dist[di] += cajas;

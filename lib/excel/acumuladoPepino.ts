@@ -527,7 +527,7 @@ export async function generarExcelAcumuladoPepino({
     hojaCampoPepino(libro, campo.nombre, regs, plant, cicloLabel, inicio, dias, nombreHoja);
   }
 
-  hojaDistribuidor(libro, registros, camposOrden, cuadrosPlantados, cicloLabel, inicio, dias);
+  hojaDistribuidor(libro, registros, camposOrden, cuadrosPlantados, cicloLabel, inicio, dias, true);
   hojaCalibres(libro, registros, camposOrden, cuadrosPlantados, cicloLabel);
 
   guardarResultados(libro);
