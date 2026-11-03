@@ -145,14 +145,9 @@ export default function AcumuladoCosechaPage() {
       .gte("fecha", fechaInicio)
       .lte("fecha", fechaFin);
 
+    // Un distribuidor especifico elegido, o "Todos" (incluye Nacional).
     if (distribuidorFiltroId) {
-      // Un distribuidor especifico elegido (incluyendo Nacional si asi se quiere ver aparte)
       query = query.eq("distribuidor_id", distribuidorFiltroId);
-    } else if (!esCultivoPepino(cultivos.find((c) => c.id === cultivoId)?.label ?? "")) {
-      // Por default: todo MENOS Nacional (Nacional se ve aparte, eligiendolo arriba).
-      // En PEPINO, Nacional cuenta como un distribuidor más (no se excluye).
-      const nacional = distribuidores.find((d) => d.label === "Nacional");
-      if (nacional) query = query.neq("distribuidor_id", nacional.id);
     }
 
     const [{ data: corte, error: errCorte }, { data: prog }, { data: cajasCorte }] = await Promise.all([
@@ -547,9 +542,7 @@ export default function AcumuladoCosechaPage() {
   function descargarPdf() {
     const distribuidorLabel = distribuidorFiltroId
       ? distribuidores.find((d) => d.id === distribuidorFiltroId)?.label ?? "—"
-      : esCultivoPepino(cultivoNombreSel)
-        ? "Todos"
-        : "Todos (sin Nacional)";
+      : "Todos";
     generarPdfAcumulado({
       cicloLabel: ciclos.find((c) => c.id === cicloId)?.clave ?? "",
       cultivoLabel: cultivoNombreSel,
@@ -602,7 +595,7 @@ export default function AcumuladoCosechaPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-campo-600">Distribuidor</label>
           <select className="input" value={distribuidorFiltroId} onChange={(e) => setDistribuidorFiltroId(e.target.value)}>
-            <option value="">{esCultivoPepino(cultivoNombreSel) ? "Todos" : "Todos (sin Nacional)"}</option>
+            <option value="">Todos</option>
             {distribuidores.map((d) => (
               <option key={d.id} value={d.id}>{d.label}</option>
             ))}
