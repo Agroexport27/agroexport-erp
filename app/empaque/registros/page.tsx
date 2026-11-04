@@ -62,7 +62,8 @@ export default function MovimientosHistorialMaterialesPage() {
 
     if (campoId) query = query.eq("campo_id", campoId);
     if (materialId) query = query.eq("material_id", materialId);
-    if (tipo) query = query.eq("tipo", tipo);
+    // El tipo se filtra en pantalla (no en la consulta) para poder emparejar
+    // cada reversión con el consumo que canceló, aunque se vean solo salidas.
 
     const { data, error } = await query.limit(3000);
     if (error) setError(error.message);
@@ -88,7 +89,33 @@ export default function MovimientosHistorialMaterialesPage() {
   // Salidas netas = consumo bruto menos lo que se revirtió (cortes borrados/editados).
   const totalSalidas =
     registros.filter((r) => r.tipo === "salida").reduce((s, r) => s + Number(r.cantidad ?? 0), 0) - totalReversiones;
-  const registrosVisibles = ocultarReversiones ? registros.filter((r) => !esReversion(r)) : registros;
+
+  // Empareja cada reversión con el consumo automático que canceló (mismo
+  // material, campo, fecha y cantidad): ambos son un corte/remisión que se
+  // borró o editó y no deben verse como movimientos reales.
+  const idsCancelados = new Set<string>();
+  {
+    const pendientes: Record<string, any[]> = {};
+    for (const r of registros) {
+      if (r.tipo === "salida" && (r.origen_tipo === "corte_diario" || r.origen_tipo === "embarque")) {
+        const k = `${r.material_id}|${r.campo_id}|${r.fecha}|${Number(r.cantidad)}|${r.origen_tipo}`;
+        (pendientes[k] = pendientes[k] ?? []).push(r);
+      }
+    }
+    for (const rev of registros.filter(esReversion)) {
+      const k = `${rev.material_id}|${rev.campo_id}|${rev.fecha}|${Number(rev.cantidad)}|${rev.origen_tipo}`;
+      const salida = pendientes[k]?.pop();
+      if (salida) {
+        idsCancelados.add(salida.id);
+        idsCancelados.add(rev.id);
+      }
+    }
+  }
+  const registrosVisibles = registros.filter(
+    (r) =>
+      (!tipo || r.tipo === tipo) &&
+      (!ocultarReversiones || (!esReversion(r) && !idsCancelados.has(r.id)))
+  );
 
   function filasParaExport() {
     return registrosVisibles.map((r: any) => ({
@@ -232,7 +259,7 @@ export default function MovimientosHistorialMaterialesPage() {
 
       <label className="mb-2 flex items-center gap-2 text-sm text-campo-700">
         <input type="checkbox" checked={ocultarReversiones} onChange={(e) => setOcultarReversiones(e.target.checked)} />
-        Ocultar reversiones (entradas automáticas por borrar/editar cortes o remisiones)
+        Ocultar reversiones y los consumos que cancelan (cortes/remisiones borrados o editados)
       </label>
 
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
