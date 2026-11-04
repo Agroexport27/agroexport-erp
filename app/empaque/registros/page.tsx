@@ -24,6 +24,7 @@ export default function MovimientosHistorialMaterialesPage() {
   const [campoId, setCampoId] = useState("");
   const [materialId, setMaterialId] = useState("");
   const [tipo, setTipo] = useState<"" | "entrada" | "salida">("");
+  const [ocultarReversiones, setOcultarReversiones] = useState(true);
 
   // --- edición inline ---
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -74,11 +75,23 @@ export default function MovimientosHistorialMaterialesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const totalEntradas = registros.filter((r) => r.tipo === "entrada").reduce((s, r) => s + Number(r.cantidad ?? 0), 0);
-  const totalSalidas = registros.filter((r) => r.tipo === "salida").reduce((s, r) => s + Number(r.cantidad ?? 0), 0);
+  // Las "entradas" generadas por Corte diario / Embarques son reversiones
+  // (se crean al borrar o editar un corte/remisión), no material que
+  // realmente llegó. Las entradas reales son las manuales.
+  const esReversion = (r: any) =>
+    r.tipo === "entrada" && (r.origen_tipo === "corte_diario" || r.origen_tipo === "embarque");
+
+  const totalEntradas = registros
+    .filter((r) => r.tipo === "entrada" && !esReversion(r))
+    .reduce((s, r) => s + Number(r.cantidad ?? 0), 0);
+  const totalReversiones = registros.filter(esReversion).reduce((s, r) => s + Number(r.cantidad ?? 0), 0);
+  // Salidas netas = consumo bruto menos lo que se revirtió (cortes borrados/editados).
+  const totalSalidas =
+    registros.filter((r) => r.tipo === "salida").reduce((s, r) => s + Number(r.cantidad ?? 0), 0) - totalReversiones;
+  const registrosVisibles = ocultarReversiones ? registros.filter((r) => !esReversion(r)) : registros;
 
   function filasParaExport() {
-    return registros.map((r: any) => ({
+    return registrosVisibles.map((r: any) => ({
       campo: r.campos?.nombre ?? "",
       material: `${r.fecha} — ${r.tipo} — ${r.materiales_empaque?.nombre ?? ""}`,
       stock: Number(r.cantidad ?? 0),
@@ -217,14 +230,24 @@ export default function MovimientosHistorialMaterialesPage() {
         </div>
       </div>
 
+      <label className="mb-2 flex items-center gap-2 text-sm text-campo-700">
+        <input type="checkbox" checked={ocultarReversiones} onChange={(e) => setOcultarReversiones(e.target.checked)} />
+        Ocultar reversiones (entradas automáticas por borrar/editar cortes o remisiones)
+      </label>
+
       <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="card p-4">
-          <p className="text-xs text-campo-500">Total entradas</p>
+          <p className="text-xs text-campo-500">Total entradas (reales, sin reversiones)</p>
           <p className="text-2xl font-semibold text-campo-900">{totalEntradas.toLocaleString()}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs text-campo-500">Total salidas</p>
+          <p className="text-xs text-campo-500">Total salidas (neto, descontando reversiones)</p>
           <p className="text-2xl font-semibold text-campo-900">{totalSalidas.toLocaleString()}</p>
+          {totalReversiones > 0 && (
+            <p className="mt-1 text-[11px] text-campo-400">
+              Reversiones por cortes/remisiones borrados o editados: {totalReversiones.toLocaleString()}
+            </p>
+          )}
         </div>
       </div>
 
@@ -244,10 +267,10 @@ export default function MovimientosHistorialMaterialesPage() {
           </thead>
           <tbody>
             {loading && <tr><td className="px-4 py-4 text-campo-400" colSpan={8}>Cargando...</td></tr>}
-            {!loading && registros.length === 0 && (
+            {!loading && registrosVisibles.length === 0 && (
               <tr><td className="px-4 py-4 text-campo-400" colSpan={8}>Sin registros en el rango seleccionado.</td></tr>
             )}
-            {registros.map((r: any) => {
+            {registrosVisibles.map((r: any) => {
               const editable = !r.origen_tipo || r.origen_tipo === "ajuste_manual";
               return (
                 <Fragment key={r.id}>
