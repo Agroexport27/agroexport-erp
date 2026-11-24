@@ -24,6 +24,25 @@ type Celda = {
   pendiente?: boolean; // en el programa aparece como PENDIENTE (sin fecha todavía)
 };
 
+// Actividades que solo se hacen en cuadros de malla (pepino). En el resto de
+// los cuadros no aplican (sin casilla). En las mallas aplican TODAS las actividades.
+const SOLO_MALLA = ["TUMBAR PLANTA", "RODILLO", "BORDERO", "ROTOTILLER"];
+const esCuadroMalla = (nombreCuadro: string) => /malla/i.test(nombreCuadro);
+function normalizarActividad(n: string) {
+  return n.toUpperCase().replace(/\s+/g, " ").trim();
+}
+// ¿Aplica la actividad en el cuadro? tieneRenglon = ya hay renglón en el programa.
+function actividadAplica(
+  actividadNombre: string,
+  cuadroNombre: string,
+  tieneRenglon: boolean,
+  cuadroTienePrograma: boolean
+): boolean {
+  if (esCuadroMalla(cuadroNombre)) return true;
+  if (SOLO_MALLA.includes(normalizarActividad(actividadNombre))) return false;
+  return tieneRenglon || !cuadroTienePrograma;
+}
+
 function sumarDias(fechaISO: string, dias: number): string {
   const d = new Date(fechaISO + "T00:00:00");
   d.setDate(d.getDate() - dias);
@@ -222,7 +241,7 @@ export default function PreparacionTerrenoPage() {
         const k = `${a.id}__${c.cuadroId}`;
         if (resumenCeldas[k] ?? false) return false; // ya está listo
         // Cuadro con programa: si la actividad no está en su programa, no aplica.
-        if (resumenConPrograma.has(c.cuadroId) && !resumenFilas.has(k)) return false;
+        if (!actividadAplica(a.nombre, c.nombre, resumenFilas.has(k), resumenConPrograma.has(c.cuadroId))) return false;
         return true;
       });
       const totalHa = cuadrosFaltantes.reduce((s, c) => s + c.hectareas, 0);
@@ -320,7 +339,8 @@ export default function PreparacionTerrenoPage() {
           const key = `${a.id}__${c.cuadroId}`;
           const celda = celdas[key];
           if (celda?.completado) return { estado: "listo", texto: "" };
-          if (!celda && cuadrosConPrograma.has(c.cuadroId)) return { estado: "na", texto: "" };
+          if (!actividadAplica(a.nombre, c.nombre, !!celda, cuadrosConPrograma.has(c.cuadroId)))
+            return { estado: "na", texto: "" };
           if (celda?.fechaProgramada) {
             const [, m, d] = celda.fechaProgramada.split("-");
             return { estado: "programada", texto: `${d}/${m}` };
@@ -418,7 +438,7 @@ export default function PreparacionTerrenoPage() {
                     const key = `${a.id}__${c.cuadroId}`;
                     const celda = celdas[key];
                     const completado = celda?.completado ?? false;
-                    const noAplica = !celda && cuadrosConPrograma.has(c.cuadroId);
+                    const noAplica = !actividadAplica(a.nombre, c.nombre, !!celda, cuadrosConPrograma.has(c.cuadroId));
                     return (
                       <td key={c.cuadroId} className="px-1 py-1 text-center">
                         <div className="flex flex-col items-center gap-0.5">
