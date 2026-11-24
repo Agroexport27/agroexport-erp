@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { generarPdfPreparacionTerreno } from "@/lib/pdf/preparacionTerreno";
+import { generarPdfPreparacionTerreno, type CeldaPdf } from "@/lib/pdf/preparacionTerreno";
 import { fechaLocalHoy } from "@/lib/fechaLocal";
 
 type Opcion = { id: string; label: string };
@@ -310,17 +310,27 @@ export default function PreparacionTerrenoPage() {
     const campoNombre = campos.find((c) => c.id === campoId)?.label ?? "";
     generarPdfPreparacionTerreno({
       campoNombre,
+      cicloClave: ciclos.find((c) => c.id === cicloId)?.clave,
       actividades: actividades.map((a) => a.nombre),
       cuadros: cuadros.map((c) => ({
         nombre: c.nombre,
         hectareas: c.hectareas,
         fechaTrasplante: c.fechaTrasplante,
-        celdas: actividades.map((a) => {
+        celdas: actividades.map((a): CeldaPdf => {
           const key = `${a.id}__${c.cuadroId}`;
           const celda = celdas[key];
-          const completado = celda?.completado ?? false;
-          const fecha = completado ? celda?.fecha || fechasEstimadas[key] || "" : "";
-          return { completado, fecha };
+          if (celda?.completado) return { estado: "listo", texto: "" };
+          if (!celda && cuadrosConPrograma.has(c.cuadroId)) return { estado: "na", texto: "" };
+          if (celda?.fechaProgramada) {
+            const [, m, d] = celda.fechaProgramada.split("-");
+            return { estado: "programada", texto: `${d}/${m}` };
+          }
+          if (celda?.pendiente) return { estado: "pendiente", texto: "" };
+          if (fechasEstimadas[key]) {
+            const [, m, d] = fechasEstimadas[key].split("-");
+            return { estado: "estimada", texto: `${d}/${m}` };
+          }
+          return { estado: "vacio", texto: "" };
         }),
       })),
     });
@@ -366,7 +376,7 @@ export default function PreparacionTerrenoPage() {
           {guardando ? "Guardando..." : "Guardar cambios"}
         </button>
         <button className="btn-secondary" onClick={descargarPdf}>
-          Descargar PDF de avance
+          Descargar PDF de avance (con ha y faltantes)
         </button>
       </div>
 
