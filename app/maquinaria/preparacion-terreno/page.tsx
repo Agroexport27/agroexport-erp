@@ -16,7 +16,13 @@ type Cuadro = {
   fechaTrasplante: string | null;
 };
 
-type Celda = { completado: boolean; fecha: string; dirty?: boolean };
+type Celda = {
+  completado: boolean;
+  fecha: string;
+  dirty?: boolean;
+  fechaProgramada?: string; // fecha del programa de preparación (planeada)
+  pendiente?: boolean; // en el programa aparece como PENDIENTE (sin fecha todavía)
+};
 
 function sumarDias(fechaISO: string, dias: number): string {
   const d = new Date(fechaISO + "T00:00:00");
@@ -35,6 +41,9 @@ export default function PreparacionTerrenoPage() {
   const [actividades, setActividades] = useState<Actividad[]>([]);
   const [cuadros, setCuadros] = useState<Cuadro[]>([]);
   const [celdas, setCeldas] = useState<Record<string, Celda>>({}); // key: actividadId__cuadroId
+  // Cuadros que ya tienen programa de preparación cargado (fechas o PENDIENTE):
+  // en ellos, una actividad sin renglón significa "no aplica" (no se estima).
+  const [cuadrosConPrograma, setCuadrosConPrograma] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,19 +114,25 @@ export default function PreparacionTerrenoPage() {
     if (cuadroIds.length > 0) {
       const { data: estatus } = await supabase
         .from("preparacion_terreno_estatus")
-        .select("cuadro_id, actividad_prep_id, completado, fecha")
+        .select("cuadro_id, actividad_prep_id, completado, fecha, fecha_programada, pendiente")
         .eq("ciclo_id", cicloId)
         .in("cuadro_id", cuadroIds);
       const nuevasCeldas: Record<string, Celda> = {};
+      const conPrograma = new Set<string>();
       for (const e of (estatus ?? []) as any[]) {
         nuevasCeldas[`${e.actividad_prep_id}__${e.cuadro_id}`] = {
           completado: e.completado,
           fecha: e.fecha ?? "",
+          fechaProgramada: e.fecha_programada ?? "",
+          pendiente: !!e.pendiente,
         };
+        if (e.fecha_programada || e.pendiente) conPrograma.add(e.cuadro_id);
       }
       setCeldas(nuevasCeldas);
+      setCuadrosConPrograma(conPrograma);
     } else {
       setCeldas({});
+      setCuadrosConPrograma(new Set());
     }
 
     setLoading(false);
@@ -140,6 +155,7 @@ export default function PreparacionTerrenoPage() {
       const fechaMeta = sumarDias(cuadro.fechaTrasplante, DIAS_ANTES_DE_TRASPLANTE);
       const duraciones = actividades.map((a) => a.diasPorHectarea * cuadro.hectareas);
       for (let i = 0; i < actividades.length; i++) {
+        if (actividades[i].diasPorHectarea === 0) continue; // actividad sin rendimiento: no se estima
         const restante = duraciones.slice(i + 1).reduce((s, d) => s + d, 0);
         mapa[`${actividades[i].id}__${cuadro.cuadroId}`] = sumarDias(fechaMeta, Math.round(restante));
       }
@@ -151,6 +167,8 @@ export default function PreparacionTerrenoPage() {
     (Cuadro & { campoNombre: string })[]
   >([]);
   const [resumenCeldas, setResumenCeldas] = useState<Record<string, boolean>>({});
+  const [resumenFilas, setResumenFilas] = useState<Set<string>>(new Set());
+  const [resumenConPrograma, setResumenConPrograma] = useState<Set<string>>(new Set());
 
   async function cargarResumenFaltantes() {
     if (!cicloId) return;
@@ -171,16 +189,25 @@ export default function PreparacionTerrenoPage() {
     if (cuadroIds.length > 0) {
       const { data: estatus } = await supabase
         .from("preparacion_terreno_estatus")
-        .select("cuadro_id, actividad_prep_id, completado")
+        .select("cuadro_id, actividad_prep_id, completado, fecha_programada, pendiente")
         .eq("ciclo_id", cicloId)
         .in("cuadro_id", cuadroIds);
       const mapa: Record<string, boolean> = {};
+      const filasSet = new Set<string>();
+      const prog = new Set<string>();
       for (const e of (estatus ?? []) as any[]) {
-        mapa[`${e.actividad_prep_id}__${e.cuadro_id}`] = e.completado;
+        const k = `${e.actividad_prep_id}__${e.cuadro_id}`;
+        mapa[k] = e.completado;
+        filasSet.add(k);
+        if (e.fecha_programada || e.pendiente) prog.add(e.cuadro_id);
       }
       setResumenCeldas(mapa);
+      setResumenFilas(filasSet);
+      setResumenConPrograma(prog);
     } else {
       setResumenCeldas({});
+      setResumenFilas(new Set());
+      setResumenConPrograma(new Set());
     }
   }
 
@@ -191,9 +218,13 @@ export default function PreparacionTerrenoPage() {
 
   const faltantesPorActividad = useMemo(() => {
     return actividades.map((a) => {
-      const cuadrosFaltantes = resumenCuadros.filter(
-        (c) => !(resumenCeldas[`${a.id}__${c.cuadroId}`] ?? false)
-      );
+      const cuadrosFaltantes = resumenCuadros.filter((c) => {
+        const k = `${a.id}__${c.cuadroId}`;
+        if (resumenCeldas[k] ?? false) return false; // ya está listo
+        // Cuadro con programa: si la actividad no está en su programa, no aplica.
+        if (resumenConPrograma.has(c.cuadroId) && !resumenFilas.has(k)) return false;
+        return true;
+      });
       const totalHa = cuadrosFaltantes.reduce((s, c) => s + c.hectareas, 0);
 
       const porCampo = new Map<string, typeof cuadrosFaltantes>();
@@ -213,7 +244,7 @@ export default function PreparacionTerrenoPage() {
 
       return { actividad: a.nombre, totalHa, grupos };
     });
-  }, [actividades, resumenCuadros, resumenCeldas]);
+  }, [actividades, resumenCuadros, resumenCeldas, resumenFilas, resumenConPrograma]);
 
 
   function toggleCompletado(actividadId: string, cuadroId: string) {
@@ -224,6 +255,7 @@ export default function PreparacionTerrenoPage() {
       return {
         ...prev,
         [key]: {
+          ...actual,
           completado: nuevoCompletado,
           fecha: nuevoCompletado ? actual?.fecha || fechaLocalHoy() : "",
           dirty: true,
@@ -376,20 +408,33 @@ export default function PreparacionTerrenoPage() {
                     const key = `${a.id}__${c.cuadroId}`;
                     const celda = celdas[key];
                     const completado = celda?.completado ?? false;
+                    const noAplica = !celda && cuadrosConPrograma.has(c.cuadroId);
                     return (
                       <td key={c.cuadroId} className="px-1 py-1 text-center">
                         <div className="flex flex-col items-center gap-0.5">
-                          <input
-                            type="checkbox"
-                            checked={completado}
-                            onChange={() => toggleCompletado(a.id, c.cuadroId)}
-                          />
-                          {completado ? (
-                            <span className="text-xs text-campo-600">✓ Listo</span>
+                          {noAplica ? (
+                            <span className="text-[10px] text-campo-300">—</span>
                           ) : (
-                            <span className="text-[10px] italic text-campo-400">
-                              {fechasEstimadas[key] || "—"}
-                            </span>
+                            <>
+                              <input
+                                type="checkbox"
+                                checked={completado}
+                                onChange={() => toggleCompletado(a.id, c.cuadroId)}
+                              />
+                              {completado ? (
+                                <span className="text-xs text-campo-600">✓ Listo</span>
+                              ) : celda?.fechaProgramada ? (
+                                <span className="text-[11px] font-medium text-campo-800">
+                                  {celda.fechaProgramada.split("-").reverse().join("/")}
+                                </span>
+                              ) : celda?.pendiente ? (
+                                <span className="text-[10px] font-semibold text-tierra-600">PENDIENTE</span>
+                              ) : (
+                                <span className="text-[10px] italic text-campo-400">
+                                  {fechasEstimadas[key] || "—"}
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
