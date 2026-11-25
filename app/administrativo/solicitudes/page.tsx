@@ -16,6 +16,7 @@ export default function SolicitudesPage() {
   const supabase = createClient();
   const [filas, setFilas] = useState<any[]>([]);
   const [lineasPor, setLineasPor] = useState<Record<string, any[]>>({});
+  const [ordenesPor, setOrdenesPor] = useState<Record<string, any[]>>({});
   const [filtro, setFiltro] = useState<"PENDIENTE" | "AUTORIZADA" | "TODAS">("PENDIENTE");
   const [esAutorizador, setEsAutorizador] = useState(false);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -31,7 +32,7 @@ export default function SolicitudesPage() {
     setError(null);
     let q = supabase
       .from("adm_solicitudes")
-      .select("*, campos(nombre), adm_ordenes_compra:orden_compra_id(id, folio, estatus)")
+      .select("*, campos(nombre)")
       .order("created_at", { ascending: false })
       .limit(500);
     if (filtro !== "TODAS") q = q.eq("estatus", filtro);
@@ -49,7 +50,18 @@ export default function SolicitudesPage() {
         const mapa: Record<string, any[]> = {};
         for (const l of (lin ?? []) as any[]) (mapa[l.solicitud_id] = mapa[l.solicitud_id] ?? []).push(l);
         setLineasPor(mapa);
-      } else setLineasPor({});
+        const { data: ocs } = await supabase
+          .from("adm_ordenes_compra")
+          .select("id, folio, estatus, proveedor_nombre, solicitud_id")
+          .in("solicitud_id", ids)
+          .order("created_at");
+        const mo: Record<string, any[]> = {};
+        for (const o of (ocs ?? []) as any[]) (mo[o.solicitud_id] = mo[o.solicitud_id] ?? []).push(o);
+        setOrdenesPor(mo);
+      } else {
+        setLineasPor({});
+        setOrdenesPor({});
+      }
     }
     setLoading(false);
   }
@@ -152,7 +164,7 @@ export default function SolicitudesPage() {
 
       {filas.map((s) => {
         const lin = lineasPor[s.id] ?? [];
-        const oc = s.adm_ordenes_compra;
+        const ordenes = ordenesPor[s.id] ?? [];
         return (
           <div key={s.id} className="card mb-2 overflow-hidden">
             <div className="flex flex-wrap items-center gap-3 px-4 py-2">
@@ -165,11 +177,11 @@ export default function SolicitudesPage() {
               </button>
               <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${COLOR[s.estatus]}`}>{s.estatus}</span>
               <span className="text-xs text-campo-500">{lin.length} concepto(s)</span>
-              {oc && (
-                <a className="text-xs font-medium text-campo-700 underline" href={`/administrativo/ordenes/${oc.id}`}>
-                  {oc.folio} ({oc.estatus})
+              {ordenes.map((o) => (
+                <a key={o.id} className="text-xs font-medium text-campo-700 underline" href={`/administrativo/ordenes/${o.id}`}>
+                  {o.folio} ({o.estatus}){o.proveedor_nombre ? ` · ${o.proveedor_nombre}` : ""}
                 </a>
-              )}
+              ))}
               <span className="ml-auto flex flex-wrap gap-1">
                 {s.estatus === "PENDIENTE" && (
                   <>

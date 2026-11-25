@@ -38,6 +38,9 @@ export default function OrdenCompraPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [estatusOriginal, setEstatusOriginal] = useState<string>("");
+  const [hermanas, setHermanas] = useState<any[]>([]); // otras órdenes de la misma solicitud
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
+  const [dividiendo, setDividiendo] = useState(false);
 
   // Recepción
   const [recFecha, setRecFecha] = useState(fechaLocalHoy());
@@ -81,7 +84,14 @@ export default function OrdenCompraPage() {
     if (o.solicitud_id) {
       const { data: s } = await supabase.from("adm_solicitudes").select("folio").eq("id", o.solicitud_id).single();
       setSolicitudFolio(s?.folio ?? null);
-    }
+      const { data: otras } = await supabase
+        .from("adm_ordenes_compra")
+        .select("id, folio, proveedor_nombre, estatus, total, moneda")
+        .eq("solicitud_id", o.solicitud_id)
+        .order("created_at");
+      setHermanas((otras ?? []).filter((x: any) => x.id !== id));
+    } else setHermanas([]);
+    setSeleccion(new Set());
   }
 
   useEffect(() => {
@@ -120,7 +130,7 @@ export default function OrdenCompraPage() {
     return { subtotal, iva, total: subtotal + iva };
   }, [lineas, oc?.iva_pct]);
 
-  async function guardar() {
+  async function guardar(): Promise<boolean> {
     setError(null);
     setMensaje(null);
     const validas = lineas.filter((l) => l.descripcion.trim());
@@ -151,7 +161,7 @@ export default function OrdenCompraPage() {
     if (eu) {
       setGuardando(false);
       setError(eu.message);
-      return;
+      return false;
     }
 
     // Renglones: actualiza los existentes, inserta los nuevos, borra los quitados (sin recepciones).
@@ -179,7 +189,7 @@ export default function OrdenCompraPage() {
       if (el) {
         setGuardando(false);
         setError(el.message);
-        return;
+        return false;
       }
     }
     // Si cambiaron cantidades, el estatus de surtido se recalcula; si lo cambiaste tú a mano, se respeta.
@@ -189,6 +199,28 @@ export default function OrdenCompraPage() {
     setGuardando(false);
     setMensaje("Orden guardada.");
     await cargar();
+    return true;
+  }
+
+  async function moverAOrdenNueva() {
+    const ids = lineas.filter((l) => l.id && seleccion.has(l.id)).map((l) => l.id!);
+    if (ids.length === 0) {
+      setError("Marca los conceptos que irán a otra orden (otro proveedor).");
+      return;
+    }
+    setDividiendo(true);
+    const ok = await guardar(); // primero guarda lo que tengas en pantalla
+    if (!ok) {
+      setDividiendo(false);
+      return;
+    }
+    const { data, error } = await supabase.rpc("adm_dividir_oc", { p_oc: id, p_lineas: ids });
+    setDividiendo(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.push(`/administrativo/ordenes/${data as string}`);
   }
 
   async function descargarPdf() {
@@ -397,6 +429,52 @@ export default function OrdenCompraPage() {
           <span className="font-semibold text-campo-900">Total: {dinero(totales.total, oc.moneda)}</span>
         </div>
       </div>
+
+      {solicitudFolio && (
+        <div className="card mb-4 p-4">
+          <h2 className="mb-1 text-sm font-semibold text-campo-800">Otro proveedor para esta solicitud</h2>
+          <p className="mb-2 text-xs text-campo-500">
+            Una solicitud puede tener varias órdenes de compra. Marca los conceptos que compra otro proveedor y pásalos a una orden nueva
+            (se guarda lo que traes en pantalla antes de moverlos).
+          </p>
+          <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
+            {lineas.filter((l) => l.id).map((l) => {
+              const bloqueado = Number(l.cantidad_recibida ?? 0) > 0;
+              return (
+                <label key={l.key} className={`flex items-center gap-2 text-sm ${bloqueado ? "text-campo-300" : "text-campo-700"}`}>
+                  <input
+                    type="checkbox"
+                    disabled={bloqueado}
+                    checked={seleccion.has(l.id!)}
+                    onChange={(e) =>
+                      setSeleccion((prev) => {
+                        const n = new Set(prev);
+                        if (e.target.checked) n.add(l.id!);
+                        else n.delete(l.id!);
+                        return n;
+                      })
+                    }
+                  />
+                  {l.descripcion || "(sin descripción)"}
+                </label>
+              );
+            })}
+          </div>
+          <button className="btn-secondary" onClick={moverAOrdenNueva} disabled={dividiendo || guardando}>
+            {dividiendo ? "Moviendo…" : "Mover marcados a una orden nueva"}
+          </button>
+          {hermanas.length > 0 && (
+            <div className="mt-3 border-t border-campo-100 pt-2 text-xs text-campo-600">
+              <p className="mb-1 font-medium">Otras órdenes de {solicitudFolio}:</p>
+              {hermanas.map((h) => (
+                <a key={h.id} href={`/administrativo/ordenes/${h.id}`} className="mr-4 underline">
+                  {h.folio} · {h.proveedor_nombre || "sin proveedor"} · {h.estatus}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap gap-2">
         <button className="btn-primary" onClick={guardar} disabled={guardando}>
