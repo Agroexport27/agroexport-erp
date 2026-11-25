@@ -74,17 +74,25 @@ export default function SolicitudesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtro]);
 
-  async function autorizar(s: any) {
-    if (!confirm(`¿Autorizar la solicitud ${s.folio}? Se generará la orden de compra.`)) return;
+  async function autorizar(s: any, conOrden: boolean | null) {
+    const sinOrden = conOrden === false || (conOrden === null && s.requiere_oc === false);
+    const msg = sinOrden
+      ? `¿Autorizar la solicitud ${s.folio} SIN orden de compra?`
+      : `¿Autorizar la solicitud ${s.folio}? Se generará la orden de compra.`;
+    if (!confirm(msg)) return;
     setTrabajando(s.id);
     setError(null);
-    const { data, error } = await supabase.rpc("adm_autorizar_solicitud", { p_id: s.id });
+    const { data, error } = await supabase.rpc("adm_autorizar_solicitud", { p_id: s.id, p_generar_oc: conOrden });
     setTrabajando(null);
     if (error) {
       setError(error.message);
       return;
     }
-    setMensaje({ texto: `Solicitud ${s.folio} autorizada. Se generó su orden de compra.`, ocId: data as string });
+    setMensaje(
+      data
+        ? { texto: `Solicitud ${s.folio} autorizada. Se generó su orden de compra.`, ocId: data as string }
+        : { texto: `Solicitud ${s.folio} autorizada (sin orden de compra).` }
+    );
     cargar();
   }
 
@@ -177,6 +185,11 @@ export default function SolicitudesPage() {
               </button>
               <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${COLOR[s.estatus]}`}>{s.estatus}</span>
               <span className="text-xs text-campo-500">{lin.length} concepto(s)</span>
+              {s.requiere_oc === false && (
+                <span className="rounded bg-campo-100 px-1.5 text-[10px] font-semibold text-campo-700">
+                  SIN ORDEN DE COMPRA{s.monto != null ? ` · $${Number(s.monto).toLocaleString("es-MX", { minimumFractionDigits: 2 })}` : ""}
+                </span>
+              )}
               {ordenes.map((o) => (
                 <a key={o.id} className="text-xs font-medium text-campo-700 underline" href={`/administrativo/ordenes/${o.id}`}>
                   {o.folio} ({o.estatus}){o.proveedor_nombre ? ` · ${o.proveedor_nombre}` : ""}
@@ -190,9 +203,14 @@ export default function SolicitudesPage() {
                     </button>
                     {esAutorizador && (
                       <>
-                        <button className="btn-primary text-xs" disabled={trabajando === s.id} onClick={() => autorizar(s)}>
-                          {trabajando === s.id ? "…" : "✓ Autorizar"}
+                        <button className="btn-primary text-xs" disabled={trabajando === s.id} onClick={() => autorizar(s, null)}>
+                          {trabajando === s.id ? "…" : s.requiere_oc === false ? "✓ Autorizar (sin orden)" : "✓ Autorizar"}
                         </button>
+                        {s.requiere_oc !== false && (
+                          <button className="btn-secondary text-xs" disabled={trabajando === s.id} onClick={() => autorizar(s, false)}>
+                            Autorizar sin orden
+                          </button>
+                        )}
                         <button className="btn-danger text-xs" disabled={trabajando === s.id} onClick={() => rechazar(s)}>
                           Rechazar
                         </button>

@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { EMPRESA, dinero, fechaMx } from "@/lib/administrativo";
+import { LOGO_AGROEXPORT_ALTO_PX, LOGO_AGROEXPORT_ANCHO_PX, LOGO_AGROEXPORT_JPEG } from "@/lib/pdf/logoAgroexport";
 
 export type OrdenCompraPdf = {
   folio: string;
@@ -26,17 +27,22 @@ export function generarPdfOrdenCompra(oc: OrdenCompraPdf) {
   const W = doc.internal.pageSize.getWidth();
   const verde: [number, number, number] = [92, 140, 58];
 
-  // Encabezado
+  // Encabezado: logo arriba a la izquierda + datos de la empresa
+  const logoW = 24;
+  const logoH = (logoW * LOGO_AGROEXPORT_ALTO_PX) / LOGO_AGROEXPORT_ANCHO_PX;
+  doc.addImage(LOGO_AGROEXPORT_JPEG, "JPEG", 14, 8, logoW, logoH);
+  const xEmp = 14 + logoW + 4;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.text(EMPRESA.nombre, 14, 16);
+  doc.setFontSize(12);
+  doc.text(EMPRESA.nombre, xEmp, 15);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  let yEmp = 21;
+  let yEmp = 20;
   for (const t of [EMPRESA.rfc && `RFC: ${EMPRESA.rfc}`, EMPRESA.direccion, EMPRESA.telefono && `Tel. ${EMPRESA.telefono}`]) {
     if (t) {
-      doc.text(String(t), 14, yEmp);
-      yEmp += 4;
+      const partes = doc.splitTextToSize(String(t), W - 78 - xEmp - 4);
+      doc.text(partes, xEmp, yEmp);
+      yEmp += 3.8 * partes.length;
     }
   }
 
@@ -145,21 +151,22 @@ export function generarPdfOrdenCompra(oc: OrdenCompraPdf) {
     doc.text(doc.splitTextToSize(oc.notas, W - 100), 14, y + 4);
   }
 
-  // Firmas
+  // Firmas: Solicitó y Autorizó, centradas
   let yF = Math.max(y + 32, 235);
   if (yF > 255) {
     doc.addPage();
     yF = 40;
   }
   doc.setDrawColor(120);
-  const ancho = (W - 28 - 20) / 3;
+  const ancho = 70;
+  const sep = 24;
+  const x0 = (W - (2 * ancho + sep)) / 2;
   const firmas = [
     { rol: "Solicitó", nombre: oc.solicitante ?? "" },
     { rol: "Autorizó", nombre: oc.autorizo ? `${oc.autorizo}${oc.autorizoFecha ? `\n${fechaMx(oc.autorizoFecha)}` : ""}` : "" },
-    { rol: "Recibe / Proveedor", nombre: "" },
   ];
   firmas.forEach((f, i) => {
-    const x = 14 + i * (ancho + 10);
+    const x = x0 + i * (ancho + sep);
     doc.line(x, yF, x + ancho, yF);
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");

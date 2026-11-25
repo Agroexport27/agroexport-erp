@@ -26,6 +26,8 @@ export default function SolicitudForm({
   const [uso, setUso] = useState(solicitud?.uso ?? "");
   const [notas, setNotas] = useState(solicitud?.notas ?? "");
   const [urgente, setUrgente] = useState(!!solicitud?.urgente);
+  const [sinOrden, setSinOrden] = useState(solicitud?.requiere_oc === false);
+  const [monto, setMonto] = useState(solicitud?.monto != null ? String(solicitud.monto) : "");
   const [lineas, setLineas] = useState<LineaUI[]>([lineaVacia()]);
 
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +84,8 @@ export default function SolicitudForm({
       uso: uso || null,
       notas: notas || null,
       urgente,
+      requiere_oc: !sinOrden,
+      monto: sinOrden && monto ? parseFloat(monto) : null,
     };
 
     let solicitudId: string = solicitud?.id;
@@ -159,6 +163,18 @@ export default function SolicitudForm({
           <input type="checkbox" checked={urgente} onChange={(e) => setUrgente(e.target.checked)} />
           Urgente
         </label>
+        <div className="flex flex-wrap items-center gap-3 sm:col-span-2 md:col-span-4">
+          <label className="flex items-center gap-2 text-sm text-campo-700">
+            <input type="checkbox" checked={sinOrden} onChange={(e) => setSinOrden(e.target.checked)} />
+            No requiere orden de compra (reembolso, gasto, etc.)
+          </label>
+          {sinOrden && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium text-campo-600">Monto</label>
+              <input type="number" step="any" className="input w-36" value={monto} onChange={(e) => setMonto(e.target.value)} />
+            </div>
+          )}
+        </div>
         <div className="sm:col-span-2 md:col-span-2">
           <label className="mb-1 block text-xs font-medium text-campo-600">Para qué / dónde se usa</label>
           <input className="input" value={uso} onChange={(e) => setUso(e.target.value)} />
